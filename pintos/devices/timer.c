@@ -9,7 +9,10 @@
 #include "threads/thread.h"
 
 /* See [8254] for hardware details of the 8254 timer chip. */
-
+/**
+ *  컴파일 시점에 TIMER_FREQ 값이 유효한 범위 (19Hz ~ 1000Hz) 에 있는지 검사
+ *  ='안전 장치'
+ */
 #if TIMER_FREQ < 19
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
@@ -29,9 +32,18 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+/* 잠자는 스레드를 위한 리스트 */
+static struct list sleep_list;
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
+/* 8254 프로그래머블 인터벌 타이머(PIT)를 설정하여 초당 PIT_FREQ 횟수만큼
+ * 인터럽트를 발생시키고, 해당 인터럽트 핸들러를 등록합니다.
+ * 
+ * 이 함수는 시스템 초기화 과정에서 한 번만 호출되며,
+ * 타이머 하드웨어를 초기화하고 인터럽트 처리를 위한 기본 설정을 수행합니다.
+ */
 void
 timer_init (void) {
 	/* 8254 input frequency divided by TIMER_FREQ, rounded to
@@ -43,11 +55,23 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+	list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
+/* loops_per_tick 값을 보정(캘리브레이션)합니다.
+ * 
+ * 짧은 시간 지연을 구현하는데 사용되는 loops_per_tick 값을
+ * 현재 시스템에 맞게 계산하여 초기화합니다.
+ * 
+ * 이 함수는 시스템 초기화 과정에서 한 번만 호출되며,
+ * 인터럽트가 활성화된 상태에서 실행되어야 합니다.
+ * 
+ * 캘리브레이션이 완료되면 초당 반복 횟수를 출력합니다.
+ */
 void
-timer_calibrate (void) {
+timer_calibrate(void) {
 	unsigned high_bit, test_bit;
 
 	ASSERT (intr_get_level () == INTR_ON);
@@ -71,6 +95,11 @@ timer_calibrate (void) {
 }
 
 /* Returns the number of timer ticks since the OS booted. */
+/* OS가 부팅된 이후의 총 타이머 틱 수를 반환합니다.
+ *
+ * @return 부팅 이후 경과된 타이머 틱의 총 개수를 int64_t 타입으로 반환합니다.
+ *         이 값은 인터럽트가 비활성화된 상태에서 안전하게 읽어옵니다.
+ */
 int64_t
 timer_ticks (void) {
 	enum intr_level old_level = intr_disable ();
@@ -82,54 +111,151 @@ timer_ticks (void) {
 
 /* Returns the number of timer ticks elapsed since THEN, which
    should be a value once returned by timer_ticks(). */
+/* 주어진 시점 이후 경과된 타이머 틱 수를 반환합니다.
+ *
+ * @param then 기준이 되는 시점의 타이머 틱 값입니다.
+ *            이 값은 timer_ticks() 함수가 이전에 반환한 값이어야 합니다.
+ * @return 주어진 시점으로부터 현재까지 경과된 타이머 틱의 수를 int64_t 타입으로 반환합니다.
+ */
 int64_t
 timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
+
+static bool
+compare_wakeup_tick (const struct list_elem *a,
+					 const struct list_elem *b) {
+	/* list_elem 으로부터 이를 포함하는 struct thread 를 얻어낸다. */
+	const struct thread *thread_a = list_entry(a, struct thread, elem);
+	const struct thread *thread_b = list_entry(b, struct thread, elem);
+
+	return thread_a->wake_up_tick < thread_b->wake_up_tick;
+}
+
 /* Suspends execution for approximately TICKS timer ticks. */
+/* 주어진 틱(tick) 수 만큼 실행을 일시 중단합니다.
+ *
+ * @param ticks 대기할 타이머 틱의 수입니다. 
+ *              정확하지 않을 수 있으며 대략적인 값입니다.
+ * 
+ * 현재 스레드는 주어진 틱 수만큼 실행이 일시 중단되며,
+ * 이 시간 동안 다른 스레드들이 실행될 수 있습니다.
+ */
 void
 timer_sleep (int64_t ticks) {
+	if (ticks <= 0) {
+		return;
+	}
+	ASSERT (intr_get_level () == INTR_ON);
+
 	int64_t start = timer_ticks ();
 
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	// 스레드가 대기했다가 깨어날 시간 계산하기
+	struct thread *thread_to_sleep = thread_current();
+	thread_to_sleep->wake_up_tick = start + ticks;
+
+	// 방해 금지 모드 ON
+	enum intr_level old_level = intr_disable ();
+
+	// 스레드를 대기 리스트에 넣기
+	list_insert_ordered(&sleep_list, &thread_to_sleep->elem, compare_wakeup_tick, NULL);
+
+	// 스레드를 재우기
+	thread_block();
+
+	// 방해 금지 모드 OFF
+	intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
+
+/* 실행을 대략적으로 MS 밀리초 동안 일시 중단합니다.
+ *
+ * @param ms 일시 중단할 시간(밀리초)입니다.
+ *          정확하지 않을 수 있으며 근사값입니다.
+ */
 void
 timer_msleep (int64_t ms) {
 	real_time_sleep (ms, 1000);
 }
 
 /* Suspends execution for approximately US microseconds. */
+/* 실행을 대략적으로 US 마이크로초 동안 일시 중단합니다.
+ *
+ * @param us 일시 중단할 시간(마이크로초)입니다.
+ *          정확하지 않을 수 있으며 근사값입니다.
+ */
 void
 timer_usleep (int64_t us) {
 	real_time_sleep (us, 1000 * 1000);
 }
 
 /* Suspends execution for approximately NS nanoseconds. */
+/* 실행을 대략적으로 NS 나노초 동안 일시 중단합니다.
+ *
+ * @param ns 일시 중단할 시간(나노초)입니다.
+ *          정확하지 않을 수 있으며 근사값입니다.
+ */
 void
 timer_nsleep (int64_t ns) {
 	real_time_sleep (ns, 1000 * 1000 * 1000);
 }
 
 /* Prints timer statistics. */
+/* 타이머 통계를 출력합니다.
+ *
+ * 시스템이 부팅된 이후 경과된 총 타이머 틱 수를 화면에 출력합니다.
+ */
 void
 timer_print_stats (void) {
 	printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
+
 /* Timer interrupt handler. */
+
+/* 타이머 인터럽트 핸들러입니다.
+ *
+ * 매 타이머 틱마다 호출되며 다음과 같은 작업을 수행합니다:
+ * 1. 전체 시스템 틱 카운터를 증가시킵니다.
+ * 2. 스레드 틱 카운터를 업데이트합니다.
+ * 3. sleep_list에서 깨워야 할 스레드가 있는지 확인하고 처리합니다.
+ *
+ * @param args 인터럽트 프레임 포인터 (사용되지 않음)
+ */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
-	thread_tick ();
+	thread_tick();
+
+	while (!list_empty(&sleep_list)) {
+		/* 맨 앞 스레드를 가져와서 깨어날 시간 확인하기 */
+		struct list_elem *e = list_begin(&sleep_list);
+		struct thread *t = list_entry(e, struct thread, elem);
+	
+		if (t->wake_up_tick <= ticks) {
+			/* 깨워야할 스레드라면 제거한다. */
+			list_remove(e);
+			thread_unblock(t);
+		} else {
+			/* 오름차순으로 정렬된 상태인데
+			 * 첫 번째 스레드가 깨어날 시간이 되지 않았다는 것은
+			 * 그 다음 스레드들도 깨어날 시간이 안됐다는 뜻이므로 볼 필요가 없다.
+			 */
+			break;
+		}
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */
+/* 주어진 반복 횟수가 한 타이머 틱보다 더 오래 걸리는지 검사합니다.
+ *
+ * @param loops 검사할 반복 횟수입니다.
+ * @return 주어진 반복 횟수가 한 타이머 틱보다 더 오래 걸리면 true,
+ *         그렇지 않으면 false를 반환합니다.
+ */
+
 static bool
 too_many_loops (unsigned loops) {
 	/* Wait for a timer tick. */
@@ -153,6 +279,14 @@ too_many_loops (unsigned loops) {
    affect timings, so that if this function was inlined
    differently in different places the results would be difficult
    to predict. */
+/* 짧은 시간 지연을 구현하기 위해 간단한 루프를 LOOPS 횟수만큼 반복합니다.
+ *
+ * @param loops 반복할 횟수입니다.
+ *
+ * 이 함수는 NO_INLINE으로 표시되어 있습니다.
+ * 코드 정렬이 타이밍에 큰 영향을 미칠 수 있기 때문에,
+ * 다른 위치에서 인라인되면 결과를 예측하기 어려울 수 있습니다.
+ */
 static void NO_INLINE
 busy_wait (int64_t loops) {
 	while (loops-- > 0)
@@ -160,6 +294,15 @@ busy_wait (int64_t loops) {
 }
 
 /* Sleep for approximately NUM/DENOM seconds. */
+/* 대략적으로 NUM/DENOM 초 동안 실행을 일시 중단합니다.
+ *
+ * @param num 시간의 분자 값입니다.
+ * @param denom 시간의 분모 값입니다.
+ *
+ * 실제 대기 시간은 NUM/DENOM 초에 근사합니다.
+ * 타이머 틱 단위로 변환하여 timer_sleep()을 호출하거나,
+ * 더 정확한 서브틱 타이밍을 위해 busy_wait를 사용합니다.
+ */
 static void
 real_time_sleep (int64_t num, int32_t denom) {
 	/* Convert NUM/DENOM seconds into timer ticks, rounding down.
