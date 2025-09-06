@@ -111,7 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
-	list_init(&sleep_list);				/* Alarm Clock */
+	list_init (&sleep_list);				/* Alarm Clock */
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -211,7 +211,41 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	/* 새로 생성된 스레드의 우선순위가 현재 스레드보다 높으면 CPU를 양보한다. */
+	if (should_preempt()) {
+		thread_yield();
+	}
+
 	return tid;
+}
+
+static bool
+compare_priority (const struct list_elem *a,
+					 const struct list_elem *b,
+					 void *aux UNUSED) {
+	const struct thread *thread_a = list_entry(a, struct thread, elem);
+	const struct thread *thread_b = list_entry(b, struct thread, elem);
+	/* 핀토스에서는 높은 숫자가 높은 우선순위이다. */
+	return thread_a->priority > thread_b->priority;
+}
+
+
+/* 현재 실행 중인 스레드가 CPU를 양보해야 하는지 확인한다.
+ *
+ * ready_list의 맨 앞에 있는 스레드의 우선순위와
+ * 현재 실행 중인 스레드의 우선순위를 비교한다.
+ * 
+ * @return ready_list가 비어있으면 false
+ *         ready_list의 맨 앞 스레드의 우선순위가 더 높으면 true
+ *         그렇지 않으면 false를 반환
+ */
+bool
+should_preempt(void) {
+	if (list_empty(&ready_list)) {
+		return false;
+	}
+
+	return thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority;
 }
 
 /* Alarm Clock */
@@ -294,16 +328,25 @@ thread_block (void) {
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
+/* 블럭된 스레드 T를 실행 준비(ready-to-run) 상태로 전환시킨다.
+ * T가 블럭된 상태가 아니라면 오류이다.
+ * (실행 중인 스레드를 실행 준비 상태로 만들려면 thread_yield()를 사용하라.)
+ *
+ * 이 함수는 실행 중인 스레드를 선점하지 않는다.
+ * 이것은 매우 중요할 수 있다: 호출자가 스스로 인터럽트를 비활성화했다면,
+ * 스레드를 언블럭하고 다른 데이터를 원자적으로 업데이트할 것이라 기대할 것이다.
+ */
 void
-thread_unblock (struct thread *t) {
+thread_unblock(struct thread *t) {
 	enum intr_level old_level;
 
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, compare_priority, NULL);
 	t->status = THREAD_READY;
+
 	intr_set_level (old_level);
 }
 
@@ -356,6 +399,14 @@ thread_exit (void) {
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
+/* 현재 실행 중인 스레드가 자발적으로 CPU 사용을 양보한다.
+ *
+ * 현재 스레드를 ready_list에 우선순위 순서로 삽입하고
+ * THREAD_READY 상태로 변경한 뒤 스케줄러를 호출한다.
+ * idle_thread는 ready_list에 삽입하지 않는다.
+ *
+ * @note 선점 스케줄링과는 달리 스레드가 자발적으로 CPU를 양보한다.
+ * @note 인터럽트가 비활성화된 상태에서 스케줄링이 수행된다. */
 void
 thread_yield (void) {
 	struct thread *curr = thread_current ();
@@ -365,7 +416,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, compare_priority, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -373,7 +425,17 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	// 인터럽트 비활성화 : 원자성 보장
+	enum intr_level old_level = intr_disable ();
+
 	thread_current ()->priority = new_priority;
+
+	/* 우선순위가 낮아져 선점이 필요할 수 있으므로 확인해야 한다. */
+	if (should_preempt()) {
+		thread_yield();
+	}
+
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's priority. */
