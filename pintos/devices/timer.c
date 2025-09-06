@@ -32,9 +32,6 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
-/* 잠자는 스레드를 위한 리스트 */
-static struct list sleep_list;
-
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -55,8 +52,6 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
-
-	list_init(&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -122,17 +117,6 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
-
-static bool
-compare_wakeup_tick (const struct list_elem *a,
-					 const struct list_elem *b) {
-	/* list_elem 으로부터 이를 포함하는 struct thread 를 얻어낸다. */
-	const struct thread *thread_a = list_entry(a, struct thread, elem);
-	const struct thread *thread_b = list_entry(b, struct thread, elem);
-
-	return thread_a->wake_up_tick < thread_b->wake_up_tick;
-}
-
 /* Suspends execution for approximately TICKS timer ticks. */
 /* 주어진 틱(tick) 수 만큼 실행을 일시 중단합니다.
  *
@@ -147,25 +131,9 @@ timer_sleep (int64_t ticks) {
 	if (ticks <= 0) {
 		return;
 	}
-	ASSERT (intr_get_level () == INTR_ON);
 
-	int64_t start = timer_ticks ();
-
-	// 스레드가 대기했다가 깨어날 시간 계산하기
-	struct thread *thread_to_sleep = thread_current();
-	thread_to_sleep->wake_up_tick = start + ticks;
-
-	// 방해 금지 모드 ON
-	enum intr_level old_level = intr_disable ();
-
-	// 스레드를 대기 리스트에 넣기
-	list_insert_ordered(&sleep_list, &thread_to_sleep->elem, compare_wakeup_tick, NULL);
-
-	// 스레드를 재우기
-	thread_block();
-
-	// 방해 금지 모드 OFF
-	intr_set_level (old_level);
+	int64_t wake_up_at = timer_ticks() + ticks;
+	thread_sleep(wake_up_at);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -213,38 +181,11 @@ timer_print_stats (void) {
 }
 
 /* Timer interrupt handler. */
-
-/* 타이머 인터럽트 핸들러입니다.
- *
- * 매 타이머 틱마다 호출되며 다음과 같은 작업을 수행합니다:
- * 1. 전체 시스템 틱 카운터를 증가시킵니다.
- * 2. 스레드 틱 카운터를 업데이트합니다.
- * 3. sleep_list에서 깨워야 할 스레드가 있는지 확인하고 처리합니다.
- *
- * @param args 인터럽트 프레임 포인터 (사용되지 않음)
- */
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick();
-
-	while (!list_empty(&sleep_list)) {
-		/* 맨 앞 스레드를 가져와서 깨어날 시간 확인하기 */
-		struct list_elem *e = list_begin(&sleep_list);
-		struct thread *t = list_entry(e, struct thread, elem);
-	
-		if (t->wake_up_tick <= ticks) {
-			/* 깨워야할 스레드라면 제거한다. */
-			list_remove(e);
-			thread_unblock(t);
-		} else {
-			/* 오름차순으로 정렬된 상태인데
-			 * 첫 번째 스레드가 깨어날 시간이 되지 않았다는 것은
-			 * 그 다음 스레드들도 깨어날 시간이 안됐다는 뜻이므로 볼 필요가 없다.
-			 */
-			break;
-		}
-	}
+	thread_wakeup(ticks);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

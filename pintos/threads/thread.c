@@ -28,6 +28,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* Alarm Clock : List of processes in THREAD_BLOCKED state, waiting for the timer   */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -108,6 +111,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init(&sleep_list);				/* Alarm Clock */
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -208,6 +212,64 @@ thread_create (const char *name, int priority,
 	thread_unblock (t);
 
 	return tid;
+}
+
+/* Alarm Clock */
+
+/* 두 쓰레드의 깨어나는 시간(wake_up_tick)을 비교하는 함수
+ * 
+ * @param a 비교할 첫 번째 쓰레드의 list_elem
+ * @param b 비교할 두 번째 쓰레드의 list_elem
+ * @return thread_a의 wake_up_tick이 thread_b의 wake_up_tick보다 작으면 true
+ *         그렇지 않으면 false를 반환
+ */
+static bool
+compare_wakeup_tick (const struct list_elem *a,
+					 const struct list_elem *b,
+					 void *aux UNUSED) {
+	const struct thread *thread_a = list_entry(a, struct thread, elem);
+	const struct thread *thread_b = list_entry(b, struct thread, elem);
+
+	return thread_a->wake_up_tick < thread_b->wake_up_tick;
+}
+
+void
+thread_sleep (int64_t ticks) {
+	struct thread *curr = thread_current();
+	enum intr_level old_level;
+
+	ASSERT(intr_get_level() == INTR_ON);
+
+	curr->wake_up_tick = ticks;
+
+	old_level = intr_disable();
+
+	list_insert_ordered(&sleep_list, &curr->elem, compare_wakeup_tick, NULL);
+
+	thread_block();
+
+	intr_set_level(old_level);
+}
+
+void
+thread_wakeup (int64_t ticks) {
+	while (!list_empty(&sleep_list)) {
+		/* 맨 앞 스레드를 가져와서 깨어날 시간 확인하기 */
+		struct list_elem *e = list_begin(&sleep_list);
+		struct thread *t = list_entry(e, struct thread, elem);
+
+		if (t->wake_up_tick > ticks) {
+			/* 오름차순으로 정렬된 상태인데
+			 * 첫 번째 스레드가 깨어날 시간이 되지 않았다는 것은
+			 * 그 다음 스레드들도 깨어날 시간이 안됐다는 뜻이므로 볼 필요가 없다.
+			 */
+			break;
+		}
+
+		/* 깨워야할 스레드라면 제거한다. */
+		list_remove(e);
+		thread_unblock(t);
+	}
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
