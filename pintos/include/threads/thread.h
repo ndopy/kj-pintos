@@ -96,6 +96,11 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 
 	int64_t wake_up_tick;				/* sleep_list 에서 깨어날 시간 */
+	int original_priority;				/* 원래 우선순위 */
+	struct lock *wait_on_lock;			/* 스레드가 기다리던 락 정보 */
+
+	/* Priority Donation */
+	struct list holding_locks;			/* 스레드가 보유하고 있는 락 리스트 */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -115,6 +120,8 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+extern struct list ready_list;
 
 void thread_init (void);
 void thread_start (void);
@@ -138,6 +145,9 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+
+bool
+compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 bool should_preempt (void);
 

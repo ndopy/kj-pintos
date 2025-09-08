@@ -186,12 +186,6 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick();
 	thread_wakeup(ticks);
-
-	/* 현재 실행 중인 스레드보다 우선순위가 높은 스레드가 ready_list 에 있다면
-	* 인터럽트가 끝날 때 CPU를 양보하도록 플래그를 설정한다. */
-	if (should_preempt()) {
-		intr_yield_on_return();
-	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

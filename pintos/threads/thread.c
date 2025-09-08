@@ -26,7 +26,7 @@
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_list;
+struct list ready_list;
 
 /* Alarm Clock : List of processes in THREAD_BLOCKED state, waiting for the timer   */
 static struct list sleep_list;
@@ -219,7 +219,7 @@ thread_create (const char *name, int priority,
 	return tid;
 }
 
-static bool
+bool
 compare_priority (const struct list_elem *a,
 					 const struct list_elem *b,
 					 void *aux UNUSED) {
@@ -342,11 +342,19 @@ thread_unblock(struct thread *t) {
 
 	ASSERT (is_thread (t));
 
+	// 경쟁 상태를 막기 위해 인터럽트를 비활성화
 	old_level = intr_disable ();
+
+	// 이 함수는 BLOCKED 상태의 스레드에만 사용되어야 한다.
 	ASSERT (t->status == THREAD_BLOCKED);
+
+	// 스레드를 ready_list에 '우선순위 순서대로' 삽입한다.
 	list_insert_ordered(&ready_list, &t->elem, compare_priority, NULL);
+
+	// 스레드의 상태를 '준비 완료'로 변경
 	t->status = THREAD_READY;
 
+	// 원래 인터럽트 상태로 복원한다.
 	intr_set_level (old_level);
 }
 
@@ -428,13 +436,25 @@ thread_set_priority (int new_priority) {
 	// 인터럽트 비활성화 : 원자성 보장
 	enum intr_level old_level = intr_disable ();
 
-	thread_current ()->priority = new_priority;
+    /* 실행 중인 스레드의 우선순위를 새로운 우선순위로 설정한다. */
+	// thread_current ()->priority = new_priority;
 
-	/* 우선순위가 낮아져 선점이 필요할 수 있으므로 확인해야 한다. */
+	// 우선순위를 기부받은 상태일 수 있으므로, 실제 priority 가 아닌 original_priority 를 변경
+	thread_current ()->original_priority = new_priority;
+
+	// 만약 기부받은 상태가 아니거나 (=소유한 락이 없다면)
+	// 또는 새로운 우선순위가 기부받은 우선순위보다 높다면 실제 priority 도 갱신한다.
+	if (list_empty(&thread_current()->holding_locks) || new_priority > thread_current()->original_priority) {
+		thread_current()->priority = new_priority;
+	}
+
+
+	/* 이 변경으로 인해 우선순위가 낮아져 선점이 필요할 수 있으므로 확인해야 한다. */
 	if (should_preempt()) {
 		thread_yield();
 	}
 
+    /* 인터럽트 활성화 */
 	intr_set_level(old_level);
 }
 
@@ -532,6 +552,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+
+	/* Priority Donation 초기화 */
+	t->original_priority = priority;
+	list_init(&t->holding_locks);
+	t->wait_on_lock = NULL;
+
 	t->magic = THREAD_MAGIC;
 }
 
