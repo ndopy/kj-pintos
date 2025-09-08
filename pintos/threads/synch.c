@@ -113,7 +113,7 @@ sema_up (struct semaphore *sema) {
 
 	// 쓰레드를 깨우기 전에, 우선순위 기부로 인해 순서가 바뀌었을 수 있으므로
 	// 대기자 리스트를 현재 우선순위 기준으로 다시 정렬한다.
-	// list_sort (&sema->waiters, compare_priority, NULL);
+	list_sort (&sema->waiters, compare_priority, NULL);
 
 	if (!list_empty (&sema->waiters))
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
