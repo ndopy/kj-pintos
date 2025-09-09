@@ -332,14 +332,6 @@ lock_release (struct lock *lock) {
 						current->priority = highest_waiter->priority;
 					}
 				}
-
-				// /* 정렬된 리스트의 맨 앞에는 가장 높은 우선순위의 대기자가 있다. */
-				// struct thread *highest_waiter =
-				// 	list_entry(list_front(&l->semaphore.waiters), struct thread, elem);
-				//
-				// if (current->priority < highest_waiter->priority) {
-				// 	current->priority = highest_waiter->priority;
-				// }
 			}
 		}
 	}

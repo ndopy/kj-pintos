@@ -439,15 +439,14 @@ thread_set_priority (int new_priority) {
     /* 실행 중인 스레드의 우선순위를 새로운 우선순위로 설정한다. */
 	// thread_current ()->priority = new_priority;
 
-	// 우선순위를 기부받은 상태일 수 있으므로, 실제 priority 가 아닌 original_priority 를 변경
+	// 우선순위를 기부받은 상태일 수 있으므로, 현재 priority 가 아닌 original_priority 를 변경
 	thread_current ()->original_priority = new_priority;
 
 	// 만약 기부받은 상태가 아니거나 (=소유한 락이 없다면)
-	// 또는 새로운 우선순위가 기부받은 우선순위보다 높다면 실제 priority 도 갱신한다.
-	if (list_empty(&thread_current()->holding_locks) || new_priority > thread_current()->original_priority) {
+	// 또는 새로운 우선순위가 현재(기부받았을 수 있는) 우선순위보다 높다면 현재 priority 도 갱신한다.
+	if (list_empty(&thread_current()->holding_locks) || new_priority > thread_current()->priority) {
 		thread_current()->priority = new_priority;
 	}
-
 
 	/* 이 변경으로 인해 우선순위가 낮아져 선점이 필요할 수 있으므로 확인해야 한다. */
 	if (should_preempt()) {
