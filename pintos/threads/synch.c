@@ -121,8 +121,11 @@ sema_up (struct semaphore *sema) {
 	sema->value++;
 	intr_set_level (old_level);
 
-	/* 만약 깨어난 스레드의 우선순위가 현재 스레드보다 높다면,
-	 * CPU를 즉시 양보하여 선점을 허용한다. */
+	/*
+	 * thread_unblock 으로 ready_list 의 우선순위가 변경됐을 수 있으므로
+	 * 현재 실행중인 스레드와 ready_list 의 첫 번째 스레드의 우선순위를 비교해서
+	 * 선점 여부를 확인하고 CPU를 양보한다..
+	 */
 	if (should_preempt()) {
 		thread_yield();
 	}
