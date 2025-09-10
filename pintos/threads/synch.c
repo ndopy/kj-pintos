@@ -190,6 +190,47 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+
+/* 단일 우선순위 기부를 수행하는 함수
+ * 
+ * @param donor     우선순위를 기부하는 스레드
+ * @param recipient 우선순위를 기부받는 스레드
+ * 
+ * donor의 우선순위가 recipient의 우선순위보다 높은 경우에만 
+ * recipient의 우선순위를 donor의 우선순위로 높이고,
+ * recipient가 READY 상태인 경우 ready_list의 순서를 재조정한다.
+ */
+static void donate_priority(struct thread *donor, struct thread *recipient) {
+	if (recipient->priority < donor->priority) {
+		recipient->priority = donor->priority;
+		if (recipient->status == THREAD_READY) {
+			list_remove(&recipient->elem);
+			list_insert_ordered(&ready_list, &recipient->elem, compare_priority, NULL);
+		}
+	}
+}
+
+/* 우선순위 기부를 연쇄적으로 수행하는 함수
+ * 
+ * @param lock    현재 스레드가 획득하려는 락
+ * @param current 우선순위를 기부하려는 현재 스레드
+ * 
+ * 현재 스레드가 획득하려는 락을 소유한 스레드부터 시작하여,
+ * 해당 스레드가 대기하고 있는 다른 락의 소유자들에게까지
+ * 연쇄적으로 우선순위를 기부한다.
+ */
+static void donate_priority_chain(struct lock *lock, struct thread *current) {
+	struct thread *target = lock->holder;
+	while (target) {
+		donate_priority(current, target);
+		if (target->wait_on_lock) {
+			target = target->wait_on_lock->holder;
+		} else {
+			break;
+		}
+	}
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -198,71 +239,28 @@ lock_init (struct lock *lock) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-
-/* 락을 획득하는 함수. 필요한 경우 락이 사용 가능해질 때까지 대기한다.
- * 현재 스레드가 이미 해당 락을 보유하고 있으면 안 된다.
- * 
- * 이 함수는 sleep 상태가 될 수 있으므로 인터럽트 핸들러 내에서 호출되면 안 된다.
- * 인터럽트가 비활성화된 상태에서 호출될 수 있지만, sleep이 필요한 경우
- * 다음 스케줄된 스레드가 인터럽트를 다시 활성화할 것이다.
- * 
- * 개선 제안:
- * 1. 우선순위 기부 체인이 너무 길어질 경우의 성능 문제 고려 필요
- * 2. 데드락 감지 및 예방 로직 추가 검토
- * 3. 재귀적 락(recursive lock) 지원 여부 검토 */
 void
 lock_acquire(struct lock *lock) {
-	/* 기본적인 유효성 검사 수행 */
-	ASSERT(lock != NULL);							// 락 포인터가 유효한지 확인
-	ASSERT(!intr_context ());						// 인터럽트 컨텍스트가 아닌지 확인
-	ASSERT(!lock_held_by_current_thread (lock));	// 현재 스레드가 이미 락을 보유하고 있지 않은지 확인
+	ASSERT(lock != NULL);
+	ASSERT(!intr_context());
+	ASSERT(!lock_held_by_current_thread(lock));
 
-	struct thread *current = thread_current();		// 현재 실행 중인 스레드 정보 가져오기
-	enum intr_level old_level;						// 이전 인터럽트 레벨 저장용 변수
+	struct thread *current = thread_current();
+	enum intr_level old_level = intr_disable();
 
-	/* 락 상태 확인 및 기부 과정을 원자적으로 실행한다. */
-	old_level = intr_disable();						// 인터럽트 비활성화하여 원자성 보장
-
-	/* 다른 스레드가 락을 보유중이면 우선순위 기부를 수행한다. */
-	if (lock->holder != NULL) {							// 락이 이미 점유되어 있는 경우
-		current->wait_on_lock = lock;					// 현재 스레드가 대기 중인 락 정보 저장
-
-		/* 우선순위 기부 체인을 따라 올라가며 우선순위를 갱신한다. */
-		struct thread *target = lock->holder;			// 락을 보유한 스레드부터 시작
-		while (target) {
-			// 체인을 따라 올라가며
-			if (target->priority < current->priority) {	// 현재 스레드의 우선순위가 더 높으면
-				target->priority = current->priority;	// 우선순위를 기부
-
-				// 우선순위가 변경된 target 이 만약 ready_list 에 있다면 재정렬 해야한다.
-				if (target->status == THREAD_READY) {
-					list_remove(&target->elem);
-					list_insert_ordered(&ready_list, &target->elem, compare_priority, NULL);
-				}
-			}
-
-			if (target->wait_on_lock) {					// 상위 락이 있다면
-				target = target->wait_on_lock->holder;	// 체인을 따라 계속 진행
-			} else {
-				break;									// 체인의 끝에 도달하면 종료
-			}
-		}
+	if (lock->holder != NULL) {
+		current->wait_on_lock = lock;
+		donate_priority_chain(lock, current);
 	}
-	intr_set_level(old_level); // 인터럽트 상태 복원
+	intr_set_level(old_level);
 
-	/* 세마포어를 내려 락을 획득하려고 시도한다.
-	 * 만약 다른 스레드가 락을 가지고 있다면, 여기서 잠들게 된다. */
-	sema_down(&lock->semaphore); // 락 획득 시도
+	sema_down(&lock->semaphore);
 
-	/* 락 획득에 성공했거나, 잠에서 깨어났을 때 아래 로직이 실행된다.
-	 * 이 부분도 원자적으로 처리해야 한다. */
-	old_level = intr_disable(); // 다시 인터럽트 비활성화
-
-	/* 이제 이 락은 더 이상 기다리는 락이 아니므로, wait_on_lock을 NULL로 초기화한다. */
-	current->wait_on_lock = NULL; // 대기 중인 락 정보 초기화
-	lock->holder = current; // 락 소유자를 현재 스레드로 설정
-	list_push_back(&current->holding_locks, &lock->lock_elem); // 보유 중인 락 리스트에 추가
-	intr_set_level(old_level); // 인터럽트 상태 복원
+	old_level = intr_disable();
+	current->wait_on_lock = NULL;
+	lock->holder = current;
+	list_push_back(&current->holding_locks, &lock->lock_elem);
+	intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
