@@ -125,9 +125,18 @@ sema_up (struct semaphore *sema) {
 	 * thread_unblock 으로 ready_list 의 우선순위가 변경됐을 수 있으므로
 	 * 현재 실행중인 스레드와 ready_list 의 첫 번째 스레드의 우선순위를 비교해서
 	 * 선점 여부를 확인하고 CPU를 양보한다..
+	 * 
+	 * 인터럽트 컨텍스트에서는 직접 thread_yield()를 호출할 수 없으므로
+	 * 지연된 yield를 사용한다.
 	 */
 	if (should_preempt()) {
-		thread_yield();
+		if (intr_context()) {
+			/* 인터럽트 컨텍스트에서는 지연된 yield 사용 */
+			intr_yield_on_return();
+		} else {
+			/* 일반 컨텍스트에서는 즉시 yield */
+			thread_yield();
+		}
 	}
 
 }
@@ -340,7 +349,13 @@ lock_release (struct lock *lock) {
 
 	/* 우선순위가 변경되었으므로, 선점이 필요한지 확인한다. */
 	if (should_preempt()) {
-		thread_yield();
+		if (intr_context()) {
+			/* 인터럽트 컨텍스트에서는 지연된 yield 사용 */
+			intr_yield_on_return();
+		} else {
+			/* 일반 컨텍스트에서는 즉시 yield */
+			thread_yield();
+		}
 	}
 
 	intr_set_level(old_level);
