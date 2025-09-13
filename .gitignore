@@ -35,3 +35,4 @@ core
 # JetBrains
 .idea
 CMakeLists.txt
+.aiassistant
