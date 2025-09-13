@@ -329,16 +329,29 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/* Argument Passing을 위한 변수들을 함수 시작 부분에 선언 */
+	#define MAX_ARGS 64						/* 인자의 최대 개수: 64개 */
+	// static char *argv[MAX_ARGS];				/* 인자들을 담을 배열 (정적 변수) */
+	// static char *arg_addresses[MAX_ARGS];	/* 인자들의 주소를 담을 배열 (정적 변수) */
+	char *argv[MAX_ARGS];
+	char *arg_addresses[MAX_ARGS];
+	int argc = 0;							/* 인자 개수 */
+	char *token, *save_ptr;					/* strtok_r을 위한 변수들 */
+	// static char file_name_copy[PGSIZE];		/* file_name의 복사본 (정적 변수) */
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
 
+	/* process_exec 에서 전달된 file_name 은 이미 복사본이므로 수정해도 안전하다. */
+	char *program_name = strtok_r(file_name, " ", &save_ptr);
+
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (program_name);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", program_name);
 		goto done;
 	}
 
@@ -350,7 +363,7 @@ load (const char *file_name, struct intr_frame *if_) {
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
 			|| ehdr.e_phnum > 1024) {
-		printf ("load: %s: error loading executable\n", file_name);
+		printf ("load: %s: error loading executable\n", program_name);
 		goto done;
 	}
 
@@ -416,7 +429,52 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	/* Argument Passing 구현 시작 */
+	argv[argc] = program_name;		// 첫 번째 인자로 프로그램 이름 저장
+	argc += 1;
 
+	/* 공백을 기준으로 문자열을 파싱 */
+	while ((token = strtok_r(NULL, " ", &save_ptr)) != NULL) {
+		if (argc >= MAX_ARGS) {
+			break;
+		}
+
+		argv[argc] = token;
+		argc += 1;
+	}
+
+	/* 파싱된 문자열들을 스택에 저장 (문자열 내용) */
+	for (i = argc-1; i >= 0; i--) {
+		int arg_size = strlen(argv[i]) + 1;   // 문자열의 길이 (널 문자 포함)
+		if_->rsp -= arg_size;				  // 스택 포인터 옮기기
+		memcpy((void *)if_->rsp, argv[i], arg_size);
+		arg_addresses[i] = (char *) if_->rsp;
+	}
+
+	/* 스택 정렬 : 스택 포인터를 8의 배수로 맞추기 */
+	while (if_->rsp % 8 != 0) {
+		// 1씩 빼주면서(스택을 아래로 내리면서) 공간을 0으로 채우기
+		if_->rsp -= 1;
+		*((char *)(if_->rsp)) = 0;
+	}
+
+	/* 널 포인터 쌓기 */
+	if_->rsp -= 8;
+	*((char **)(if_->rsp)) = 0;
+
+	/* 문자열들의 주소 쌓기 */
+	for (i = argc-1; i >= 0; i--) {
+		if_->rsp -= 8;
+		*((char **)(if_->rsp)) = arg_addresses[i];
+	}
+
+	/* 레지스터에 argc, argv 설정 */
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp;
+
+	/* 가짜 return address */
+	if_->rsp -= 8;
+	*((char **)(if_->rsp)) = 0;
 	success = true;
 
 done:
