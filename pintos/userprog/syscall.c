@@ -7,9 +7,17 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "threads/init.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+/* 시스템 콜 핸들러 */
+static void exit(int status) NO_RETURN;
+static int write(int fd, const void *buffer, unsigned size);
+
+/* 헬퍼 함수 */
+static void check_address(void *addr);
 
 /* System call.
  *
@@ -39,8 +47,65 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
+	printf ("system call! %lld\n", f->R.rax);
+
 	// TODO: Your implementation goes here.
-	printf ("system call!\n");
-	thread_exit ();
+	switch (f->R.rax) {
+		case SYS_HALT:
+			/* Pintos를 종료시킨다. */
+			power_off();
+			break;
+
+		case SYS_EXIT:
+			/* 현재 프로세스를 종료시킨다. */
+			exit(f->R.rdi);
+			break;
+
+		case SYS_WRITE:
+			// 인자 유효성 검사
+			check_address((void *) f->R.rsi);
+
+			// size가 0보다 클 때만 버퍼의 끝 주소를 검사한다.
+			if (f->R.rdx > 0) {
+				check_address((void *) f->R.rsi + f->R.rdx - 1);
+			}
+
+			f->R.rax = write(f->R.rdi, (void *)f->R.rsi, f->R.rdx);
+			break;
+
+		default:
+			/* 아직 구현되지 않은 시스템 콜이 호출되면, 비정상 종료로 처리한다. */
+			printf ("system call %lld not implemented!\n", f->R.rax);
+			thread_current()->exit_status = -1;
+			thread_exit();
+			break;
+	}
+}
+
+static void
+exit(int status) {
+	thread_current()->exit_status = status;
+	printf("%s: exit(%d)\n", thread_name(), status); /* 디버깅용 메시지 */
+	thread_exit();
+}
+
+/* 헬퍼 함수 - 주소 유효성 검사 */
+static void check_address(void *addr) {
+	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) {
+		printf("Invalid address\n");
+		exit(-1);
+	}
+}
+
+static int
+write(int fd, const void *buffer, unsigned size) {
+	if (fd == 1) {
+		/* TODO: 표준 출력(stdout)에 버퍼의 내용을 size만큼 출력하는 로직 */
+		putbuf(buffer, size);
+		return size;
+	}
+
+	// TODO: fd가 1이 아닌 경우 처리 (파일에 쓰는 경우)
+	return -1;
 }
