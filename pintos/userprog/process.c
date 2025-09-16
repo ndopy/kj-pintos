@@ -26,6 +26,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+static struct thread *get_child_process (tid_t child_tid);
 
 /* General process initializer for initd and other process. */
 static void
@@ -50,8 +51,14 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	/* file_name에서 프로그램 이름만 파싱하여 스레드 이름으로 사용 */
+	char thread_name[128];
+	strlcpy(thread_name, file_name, sizeof thread_name);
+	char *save_ptr;
+	strtok_r(thread_name, " ", &save_ptr);
+
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create (thread_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page (fn_copy);
 	return tid;
@@ -200,27 +207,44 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-	while (true) {
+process_wait (tid_t child_tid) {
+	/* 자식 프로세스 디스크립터를 찾는다. */
+	struct thread *child = get_child_process(child_tid);
 
+	/* 자식이 아니거나, 이미 wait한 자식이면 -1을 반환한다. */
+	if (child == NULL) {
+		return -1;
 	}
 
-	return -1;
+	/* 자식 프로세스가 종료할 때까지 대기한다. (sema_down) */
+	sema_down(&child->wait_sema);
+
+	/* 자식의 종료 상태를 얻는다. */
+	int status = child->exit_status;
+
+	/* 자식 리스트에서 제거한다. (자식 프로세스 수확) */
+	list_remove(&child->child_elem);
+
+	return status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+	/*
+	 * 프로세스 종료 메시지를 출력한다.
+	 * curr->exit_status는 exit() 시스템 콜 핸들러에서 설정됩니다.
+	 */
+	printf("%s: exit(%d)\n", curr->name, curr->exit_status);
 
 	process_cleanup ();
+
+	/*
+	 * 부모 프로세스가 process_wait()에서 기다리고 있다면 깨운다.
+	 * (sema_up)
+	 */
+	sema_up(&curr->wait_sema);
 }
 
 /* Free the current process's resources. */
@@ -248,6 +272,25 @@ process_cleanup (void) {
 		pml4_activate (NULL);
 		pml4_destroy (pml4);
 	}
+}
+
+/*
+ * 현재 프로세스의 자식 리스트에서 child_tid에 해당하는
+ * 자식 스레드를 찾아 반환한다.
+ */
+static struct thread *
+get_child_process (tid_t child_tid) {
+	struct thread *cur = thread_current();
+	struct list_elem *e;
+
+	for (e = list_begin(&cur->children); e != list_end(&cur->children); e = list_next(e)) {
+		struct thread *child = list_entry(e, struct thread, child_elem);
+		if (child->tid == child_tid) {
+			return child;
+		}
+	}
+	/* 자식을 찾지 못하면 NULL을 반환한다. */
+	return NULL;
 }
 
 /* Sets up the CPU for running user code in the nest thread.

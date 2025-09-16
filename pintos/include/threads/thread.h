@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+
+#include "synch.h"
 #include "threads/interrupt.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -114,7 +116,12 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+
+	/* User Program */
 	int exit_status;
+	struct semaphore wait_sema;
+	struct list children;
+	struct list_elem child_elem;
 };
 
 /* If false (default), use round-robin scheduler.

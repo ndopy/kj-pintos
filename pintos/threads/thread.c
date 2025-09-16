@@ -208,6 +208,9 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	/* 자식 리스트에 추가 */
+	list_push_back(&thread_current()->children, &t->child_elem);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
@@ -556,6 +559,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->original_priority = priority;
 	list_init(&t->holding_locks);
 	t->wait_on_lock = NULL;
+
+	/* User Program 초기화 */
+	t->exit_status = -1;				/* 기본 종료 상태 */
+	sema_init(&t->wait_sema, 0);
+	list_init(&t->children);
 
 	t->magic = THREAD_MAGIC;
 }

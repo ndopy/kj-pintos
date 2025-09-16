@@ -48,7 +48,7 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) {
-	printf ("system call! %lld\n", f->R.rax);
+	// printf ("system call! %lld\n", f->R.rax); // 디버깅용 메시지
 
 	// TODO: Your implementation goes here.
 	switch (f->R.rax) {
@@ -86,7 +86,7 @@ syscall_handler (struct intr_frame *f) {
 static void
 exit(int status) {
 	thread_current()->exit_status = status;
-	printf("%s: exit(%d)\n", thread_name(), status); /* 디버깅용 메시지 */
+	// printf("%s: exit(%d)\n", thread_name(), status); /* 디버깅용 메시지 */
 	thread_exit();
 }
 
