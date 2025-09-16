@@ -52,8 +52,6 @@ syscall_init (void) {
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) {
-	// printf ("system call! %lld\n", f->R.rax); // 디버깅용 메시지
-
 	// TODO: Your implementation goes here.
 	switch (f->R.rax) {
 		case SYS_HALT:
@@ -95,14 +93,12 @@ syscall_handler (struct intr_frame *f) {
 static void
 exit(int status) {
 	thread_current()->exit_status = status;
-	// printf("%s: exit(%d)\n", thread_name(), status); /* 디버깅용 메시지 */
 	thread_exit();
 }
 
 /* 헬퍼 함수 - 주소 유효성 검사 */
 static void check_address(void *addr) {
 	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) {
-		printf("Invalid address\n");
 		exit(-1);
 	}
 }
