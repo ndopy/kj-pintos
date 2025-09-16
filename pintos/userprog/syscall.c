@@ -22,6 +22,7 @@ static bool create(const char *file_name, unsigned int file_size);
 
 /* 헬퍼 함수 */
 static void check_address(void *addr);
+static void check_string(const char *str);
 
 /* System call.
  *
@@ -65,8 +66,8 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		case SYS_CREATE:
-			check_address((void *) f->R.rdi);
-			f->R.rax = create((void *)f->R.rdi, f->R.rsi);
+			check_string((const char *) f->R.rdi);
+			f->R.rax = create((const char *)f->R.rdi, f->R.rsi);
 			break;
 
 		case SYS_WRITE:
@@ -96,13 +97,6 @@ exit(int status) {
 	thread_exit();
 }
 
-/* 헬퍼 함수 - 주소 유효성 검사 */
-static void check_address(void *addr) {
-	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) {
-		exit(-1);
-	}
-}
-
 static int
 write(int fd, const void *buffer, unsigned size) {
 	if (fd == 1) {
@@ -120,4 +114,23 @@ create(const char *file_name, unsigned int file_size) {
 	bool result = filesys_create(file_name, (off_t) file_size);
 
 	return result;
+}
+
+
+/* 헬퍼 함수 - 주소 유효성 검사 */
+static void check_address(void *addr) {
+	if (addr == NULL || !is_user_vaddr(addr) || pml4_get_page(thread_current()->pml4, addr) == NULL) {
+		exit(-1);
+	}
+}
+
+/* 헬퍼 함수 - 문자열 주소 유효성 검사 */
+static void check_string(const char *str) {
+	/* check_address 함수는 NULL 포인터도 처리하므로, str 포인터 자체를 먼저 검사한다. */
+	check_address((void *) str);
+
+	while (*str != '\0') {
+		str++;
+		check_address((void *) str);
+	}
 }
