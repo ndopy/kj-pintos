@@ -331,13 +331,10 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Argument Passing을 위한 변수들을 함수 시작 부분에 선언 */
 	#define MAX_ARGS 64						/* 인자의 최대 개수: 64개 */
-	// static char *argv[MAX_ARGS];				/* 인자들을 담을 배열 (정적 변수) */
-	// static char *arg_addresses[MAX_ARGS];	/* 인자들의 주소를 담을 배열 (정적 변수) */
 	char *argv[MAX_ARGS];
 	char *arg_addresses[MAX_ARGS];
 	int argc = 0;							/* 인자 개수 */
 	char *token, *save_ptr;					/* strtok_r을 위한 변수들 */
-	// static char file_name_copy[PGSIZE];		/* file_name의 복사본 (정적 변수) */
 
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
