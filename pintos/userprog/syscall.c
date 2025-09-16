@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -9,12 +10,15 @@
 #include "intrinsic.h"
 #include "threads/init.h"
 
+#include "filesys/filesys.h"
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
 /* 시스템 콜 핸들러 */
 static void exit(int status) NO_RETURN;
 static int write(int fd, const void *buffer, unsigned size);
+static bool create(const char *file_name, unsigned int file_size);
 
 /* 헬퍼 함수 */
 static void check_address(void *addr);
@@ -60,6 +64,11 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_EXIT:
 			/* 현재 프로세스를 종료시킨다. */
 			exit(f->R.rdi);
+			break;
+
+		case SYS_CREATE:
+			check_address((void *) f->R.rdi);
+			f->R.rax = create((void *)f->R.rdi, f->R.rsi);
 			break;
 
 		case SYS_WRITE:
@@ -108,4 +117,11 @@ write(int fd, const void *buffer, unsigned size) {
 
 	// TODO: fd가 1이 아닌 경우 처리 (파일에 쓰는 경우)
 	return -1;
+}
+
+static bool
+create(const char *file_name, unsigned int file_size) {
+	bool result = filesys_create(file_name, (off_t) file_size);
+
+	return result;
 }
