@@ -19,10 +19,12 @@ void syscall_handler (struct intr_frame *);
 
 /* 시스템 콜 핸들러 */
 static void exit(int status) NO_RETURN;
+static int read(int fd, void *buffer, unsigned size);
 static int write(int fd, const void *buffer, unsigned size);
 static bool create(const char *file_name, unsigned int file_size);
 static int open(const char *file_name);
 static void close(int fd);
+static int filesize(int fd);
 
 /* 헬퍼 함수 */
 static void check_address(void *addr);
@@ -83,6 +85,19 @@ syscall_handler (struct intr_frame *f) {
 			close((int) f->R.rdi);
 			break;
 
+		case SYS_FILESIZE:
+			f->R.rax = filesize(f->R.rdi);
+			break;
+
+		case SYS_READ:
+			check_address((void *) f->R.rsi);
+			/* rdi, rsi, rdx -> fd, buffer, size */
+			if (f->R.rdx > 0) { /* size > 0 일때만 검사한다. */
+				check_address((void *)f->R.rsi + f->R.rdx - 1);
+			}
+			f->R.rax = read(f->R.rdi, (void *)f->R.rsi, f->R.rdx);
+			break;
+
 		case SYS_WRITE:
 			// 인자 유효성 검사
 			check_address((void *) f->R.rsi);
@@ -108,6 +123,47 @@ static void
 exit(int status) {
 	thread_current()->exit_status = status;
 	thread_exit();
+}
+
+static int
+read(int fd, void *buffer, unsigned size) {
+	if (fd < 0 || fd >= FDT_SIZE) {
+		return -1;
+	}
+
+	/* STDOUT - 표준 출력 -> 에러 */
+	if (fd == STDOUT_FILENO) {
+		return -1;
+	}
+
+	struct thread *current = thread_current();
+	struct file *file_obj = current->fd_table[fd];
+
+	if (file_obj == NULL) {
+		return -1;
+	}
+
+	int bytes_read = file_read(file_obj, buffer, size);
+
+	return bytes_read;
+}
+
+static int
+filesize(int fd) {
+	/* 파일 디스크립터 유효성 검사 */
+	if (fd < 2 || fd >= FDT_SIZE) {
+		return -1;
+	}
+
+	struct thread *current = thread_current();
+	struct file *file_obj = current->fd_table[fd];
+
+	/* 해당 fd에 열린 파일이 없는 경우 */
+	if (file_obj == NULL) {
+		return -1;
+	}
+
+	return file_length(file_obj);
 }
 
 static int
