@@ -22,6 +22,7 @@ static void exit(int status) NO_RETURN;
 static int write(int fd, const void *buffer, unsigned size);
 static bool create(const char *file_name, unsigned int file_size);
 static int open(const char *file_name);
+static void close(int fd);
 
 /* 헬퍼 함수 */
 static void check_address(void *addr);
@@ -76,6 +77,10 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_OPEN:
 			check_string((const char *) f->R.rdi);
 			f->R.rax = open((const char *)f->R.rdi);
+			break;
+
+		case SYS_CLOSE:
+			close((int) f->R.rdi);
 			break;
 
 		case SYS_WRITE:
@@ -152,6 +157,31 @@ open(const char *file_name) {
 	current->fd_table[fd] = file_obj;
 	current->next_fd++;
 	return fd;
+}
+
+static void
+close(int fd) {
+	/* 파일 디스크립트(fd) 유효성 검사 */
+	/* 표준 입출력(0,1)이거나 유효 범위를 벗어난 fd는 처리하지 않는다. */
+	if (fd < 2 || fd >= FDT_SIZE) {
+		return;
+	}
+
+	struct thread *thread = thread_current();
+
+	/* 파일 객체 포인터 조회 */
+	struct file *file_obj = thread->fd_table[fd];
+
+	/* 해당 fd에 열린 파일이 없는 경우 (이미 닫혔거나, 열린 적이 없는 경우) */
+	if (file_obj == NULL) {
+		return;
+	}
+
+	/* 파일 객체 닫기 */
+	file_close(file_obj);
+
+	/* 파일 디스크립터 테이블을 정리해서 fd를 재사용할 수 있게 한다. */
+	thread->fd_table[fd] = NULL;
 }
 
 
