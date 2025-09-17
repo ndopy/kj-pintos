@@ -10,7 +10,9 @@
 #include "intrinsic.h"
 #include "threads/init.h"
 
+#include "userprog/process.h"
 #include "filesys/filesys.h"
+#include "filesys/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -19,6 +21,7 @@ void syscall_handler (struct intr_frame *);
 static void exit(int status) NO_RETURN;
 static int write(int fd, const void *buffer, unsigned size);
 static bool create(const char *file_name, unsigned int file_size);
+static int open(const char *file_name);
 
 /* 헬퍼 함수 */
 static void check_address(void *addr);
@@ -70,6 +73,11 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = create((const char *)f->R.rdi, f->R.rsi);
 			break;
 
+		case SYS_OPEN:
+			check_string((const char *) f->R.rdi);
+			f->R.rax = open((const char *)f->R.rdi);
+			break;
+
 		case SYS_WRITE:
 			// 인자 유효성 검사
 			check_address((void *) f->R.rsi);
@@ -111,9 +119,39 @@ write(int fd, const void *buffer, unsigned size) {
 
 static bool
 create(const char *file_name, unsigned int file_size) {
+	/* 파일 이름이 비어있는 경우 -> 실패 처리 */
+	if (*file_name == '\0') {
+		return false;
+	}
+
 	bool result = filesys_create(file_name, (off_t) file_size);
 
 	return result;
+}
+
+static int
+open(const char *file_name) {
+	/* 예외 처리 : 파일 이름이 비어있는 경우 */
+	if (*file_name == '\0') {
+		return -1;
+	}
+
+	struct file *file_obj = filesys_open(file_name);
+
+	if (file_obj == NULL) {
+		return -1;
+	}
+
+	struct thread *current = thread_current();
+	int fd = current->next_fd;
+	if (fd >= FDT_SIZE) {
+		file_close(file_obj);
+		return -1;
+	}
+
+	current->fd_table[fd] = file_obj;
+	current->next_fd++;
+	return fd;
 }
 
 

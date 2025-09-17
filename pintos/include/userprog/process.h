@@ -10,4 +10,6 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
 
+#define FDT_SIZE 128	/* 넉넉하게 128 또는 512 */
+
 #endif /* userprog/process.h */

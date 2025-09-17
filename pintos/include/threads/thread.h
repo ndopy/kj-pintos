@@ -122,6 +122,10 @@ struct thread {
 	struct semaphore wait_sema;
 	struct list children;
 	struct list_elem child_elem;
+
+	/* File Descriptor Table */
+	struct file **fd_table;		/* 파일 디스크립터 테이블 */
+	int next_fd;				/* 다음에 할당할 fd 번호 */
 };
 
 /* If false (default), use round-robin scheduler.

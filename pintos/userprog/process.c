@@ -183,6 +183,19 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	/* SYS_OPEN */
+	/* FDT 를 새로 할당하고 초기화한다. */
+	struct thread *t = thread_current();
+	t->fd_table = palloc_get_page(PAL_ZERO);
+
+	if (t->fd_table == NULL) {
+		palloc_free_page(file_name);
+		return -1;	/* 메모리 할당 실패 */
+	}
+
+	/* 표준 입력(0), 표준 출력(1)은 특별한 값으로 보통 파일과 연결되지 않는다. */
+	t->next_fd = 2;
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
@@ -255,6 +268,19 @@ process_cleanup (void) {
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
 #endif
+
+	/* 스레드가 가진 모든 파일 디스크립터를 닫고 FDT 메모리를 해제하기 */
+	if (curr->fd_table != NULL) {
+		/* fd_table 을 순회하며 열려있는 모든 파일을 닫는다. (자원 누수 방지) */
+		for (int i = 2; i < FDT_SIZE; i++) {
+			if (curr->fd_table[i] != NULL) {
+				file_close(curr->fd_table[i]);
+			}
+		}
+
+		palloc_free_page(curr->fd_table);
+		curr->fd_table = NULL;
+	}
 
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
