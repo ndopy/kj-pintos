@@ -193,9 +193,6 @@ process_exec (void *f_name) {
 		return -1;	/* 메모리 할당 실패 */
 	}
 
-	/* 표준 입력(0), 표준 출력(1)은 특별한 값으로 보통 파일과 연결되지 않는다. */
-	t->next_fd = 2;
-
 	/* And then load the binary */
 	success = load (file_name, &_if);
 

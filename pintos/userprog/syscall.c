@@ -148,14 +148,22 @@ open(const char *file_name) {
 	}
 
 	struct thread *current = thread_current();
-	int fd = current->next_fd;
-	if (fd >= FDT_SIZE) {
-		file_close(file_obj);
-		return -1;
+
+	/* 파일 디스크립터 테이블에서 비어있는 가장 작은 fd 를 찾는다. */
+	int fd = -1;
+	for (int i = 2; i < FDT_SIZE; i++) {
+		if (current->fd_table[i] == NULL) {
+			current->fd_table[i] = file_obj;
+			fd = i;
+			break;
+		}
 	}
 
-	current->fd_table[fd] = file_obj;
-	current->next_fd++;
+	/* 빈 fd를 찾지 못한 경우 (테이블이 가득 찬 경우) 파일을 닫고 -1을 반환한다. */
+	if (fd == -1) {
+		file_close(file_obj);
+	}
+
 	return fd;
 }
 
