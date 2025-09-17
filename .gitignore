@@ -36,3 +36,6 @@ core
 .idea
 CMakeLists.txt
 .aiassistant
+
+# Google Gemini
+.gemini
