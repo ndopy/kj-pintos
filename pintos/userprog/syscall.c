@@ -168,14 +168,30 @@ filesize(int fd) {
 
 static int
 write(int fd, const void *buffer, unsigned size) {
-	if (fd == 1) {
-		/* TODO: 표준 출력(stdout)에 버퍼의 내용을 size만큼 출력하는 로직 */
+	if (fd == STDOUT_FILENO) {
+		/* 표준 출력(stdout)에 버퍼의 내용을 size만큼 출력하는 로직 */
 		putbuf(buffer, size);
 		return size;
 	}
 
-	// TODO: fd가 1이 아닌 경우 처리 (파일에 쓰는 경우)
-	return -1;
+	if (fd == STDIN_FILENO) {
+		/* 표준 입력에 쓰는 것은 허용되지 않는다. */
+		return -1;
+	}
+
+	if (fd < 0 || fd > FDT_SIZE) {
+		return -1;
+	}
+
+	// TODO: 일반 파일에 쓰는 경우
+	struct thread *current = thread_current();
+	struct file *file_obj = current->fd_table[fd];
+
+	if (file_obj == NULL) {
+		return -1;
+	}
+
+	return file_write(file_obj, buffer, (off_t) size);
 }
 
 static bool
