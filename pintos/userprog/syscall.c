@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
-#include "input.h"
+#include "devices/input.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
