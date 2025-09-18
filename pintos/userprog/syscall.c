@@ -30,6 +30,9 @@ static int filesize(int fd);
 static void check_address(void *addr);
 static void check_string(const char *str);
 
+/* 파일 시스템 동기화를 위한 전역 락 */
+static struct lock filesys_lock;
+
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -54,6 +57,8 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -136,14 +141,17 @@ read(int fd, void *buffer, unsigned size) {
 		return -1;
 	}
 
+	lock_acquire(&filesys_lock);
 	struct thread *current = thread_current();
 	struct file *file_obj = current->fd_table[fd];
 
 	if (file_obj == NULL) {
+		lock_release(&filesys_lock);
 		return -1;
 	}
 
 	int bytes_read = file_read(file_obj, buffer, size);
+	lock_release(&filesys_lock);
 
 	return bytes_read;
 }
@@ -155,22 +163,30 @@ filesize(int fd) {
 		return -1;
 	}
 
+	lock_acquire(&filesys_lock);
 	struct thread *current = thread_current();
 	struct file *file_obj = current->fd_table[fd];
 
 	/* 해당 fd에 열린 파일이 없는 경우 */
 	if (file_obj == NULL) {
+		lock_release(&filesys_lock);
 		return -1;
 	}
 
-	return file_length(file_obj);
+	int length = file_length(file_obj);
+	lock_release(&filesys_lock);
+
+	return length;
 }
 
 static int
 write(int fd, const void *buffer, unsigned size) {
 	if (fd == STDOUT_FILENO) {
 		/* 표준 출력(stdout)에 버퍼의 내용을 size만큼 출력하는 로직 */
+		lock_acquire(&filesys_lock);
 		putbuf(buffer, size);
+		lock_release(&filesys_lock);
+
 		return size;
 	}
 
@@ -179,7 +195,7 @@ write(int fd, const void *buffer, unsigned size) {
 		return -1;
 	}
 
-	if (fd < 0 || fd > FDT_SIZE) {
+	if (fd < 0 || fd >= FDT_SIZE) {
 		return -1;
 	}
 
@@ -191,7 +207,11 @@ write(int fd, const void *buffer, unsigned size) {
 		return -1;
 	}
 
-	return file_write(file_obj, buffer, (off_t) size);
+	lock_acquire(&filesys_lock);
+	int bytes_written = file_write(file_obj, buffer, (off_t) size);
+	lock_release(&filesys_lock);
+
+	return bytes_written;
 }
 
 static bool
@@ -201,7 +221,9 @@ create(const char *file_name, unsigned int file_size) {
 		return false;
 	}
 
+	lock_acquire(&filesys_lock);
 	bool result = filesys_create(file_name, (off_t) file_size);
+	lock_release(&filesys_lock);
 
 	return result;
 }
@@ -213,9 +235,11 @@ open(const char *file_name) {
 		return -1;
 	}
 
+	lock_acquire(&filesys_lock);
 	struct file *file_obj = filesys_open(file_name);
 
 	if (file_obj == NULL) {
+		lock_release(&filesys_lock);
 		return -1;
 	}
 
@@ -235,6 +259,8 @@ open(const char *file_name) {
 	if (fd == -1) {
 		file_close(file_obj);
 	}
+
+	lock_release(&filesys_lock);
 
 	return fd;
 }
@@ -258,10 +284,12 @@ close(int fd) {
 	}
 
 	/* 파일 객체 닫기 */
+	lock_acquire(&filesys_lock);
 	file_close(file_obj);
 
 	/* 파일 디스크립터 테이블을 정리해서 fd를 재사용할 수 있게 한다. */
 	thread->fd_table[fd] = NULL;
+	lock_release(&filesys_lock);
 }
 
 
