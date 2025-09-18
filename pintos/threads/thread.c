@@ -308,14 +308,10 @@ thread_wakeup (int64_t ticks) {
 		thread_unblock(t);
 	}
 
+	/* 타이머 인터럽트에서 실행되므로 인터럽트 컨텍스트이다. */
+	/* 따라서 intr_yield_on_return을 사용해야 한다. */
 	if (should_preempt()) {
-		if (intr_context()) {
-			/* 인터럽트 컨텍스트에서는 지연된 yield 사용 */
-			intr_yield_on_return();
-		} else {
-			/* 일반 컨텍스트에서는 즉시 yield */
-			thread_yield();
-		}
+		intr_yield_on_return();
 	}
 }
 
