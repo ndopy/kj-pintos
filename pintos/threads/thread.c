@@ -307,6 +307,16 @@ thread_wakeup (int64_t ticks) {
 		list_remove(e);
 		thread_unblock(t);
 	}
+
+	if (should_preempt()) {
+		if (intr_context()) {
+			/* 인터럽트 컨텍스트에서는 지연된 yield 사용 */
+			intr_yield_on_return();
+		} else {
+			/* 일반 컨텍스트에서는 즉시 yield */
+			thread_yield();
+		}
+	}
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -398,7 +408,11 @@ thread_exit (void) {
 	ASSERT (!intr_context ());
 
 #ifdef USERPROG
-	process_exit ();
+	/* 유저 프로세스(pml4 가 할당된 스레드)만 process_exit을 호출하도록 한다. */
+	/* 커널 스레드는 조용히 종료되어야 한다. */
+	if (thread_current()->pml4 != NULL) {
+		process_exit ();
+	}
 #endif
 
 	/* Just set our status to dying and schedule another process.
