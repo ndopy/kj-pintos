@@ -171,6 +171,20 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
+	struct thread *curr = thread_current();
+	uint64_t *old_pml4 = curr->pml4;
+
+	/* FDT 가 없다면 (최초의 유저 프로세스) 할당해준다. */
+	/* exec는 기존 FDT를 유지해야 하지만,
+	 * 스레드가 처음으로 유저 프로세스가 되는 경우에는 FDT가 없으므로 생성해야 한다.
+	 */
+	if (curr->fd_table == NULL) {
+		curr->fd_table = palloc_get_page(PAL_ZERO);
+
+		if (curr->fd_table == NULL) {
+			return -1;	/* FDT 할당 실패 */
+		}
+	}
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -180,26 +194,30 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* We first kill the current context */
-	process_cleanup ();
-
-	/* SYS_OPEN */
-	/* FDT 를 새로 할당하고 초기화한다. */
-	struct thread *t = thread_current();
-	t->fd_table = palloc_get_page(PAL_ZERO);
-
-	if (t->fd_table == NULL) {
-		palloc_free_page(file_name);
-		return -1;	/* 메모리 할당 실패 */
+	/* 명령어 문자열 복사 : f_name을 커널 메모리로 복사 */
+	file_name = palloc_get_page(PAL_ZERO);
+	if (file_name == NULL) {
+		return -1;
 	}
+	strlcpy(file_name, f_name, PGSIZE);
 
 	/* And then load the binary */
+	/* load 함수는 성공 시 새로운 pml4 를 생성하고 활성화한다. */
 	success = load (file_name, &_if);
 
 	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
+	if (!success) {
+		palloc_free_page (file_name);
 		return -1;
+	}
+
+	/* load 성공 시, 더 이상 필요 없는 복사본 페이지를 해제한다. */
+	palloc_free_page(file_name);
+
+	/* 이전 프로그램이 사용하던 페이지 테이블을 파괴한다. */
+	if (old_pml4 != NULL) {
+		pml4_destroy(old_pml4);
+	}
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -393,6 +411,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 load (const char *file_name, struct intr_frame *if_) {
 	struct thread *t = thread_current ();
+	uint64_t *old_pml4;
 	struct ELF ehdr;
 	struct file *file = NULL;
 	off_t file_ofs;
@@ -407,13 +426,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	char *token, *save_ptr;					/* strtok_r을 위한 변수들 */
 
 	/* Allocate and activate page directory. */
+	old_pml4 = t->pml4;
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
 		goto done;
 	process_activate (thread_current ());
 
 	/* process_exec 에서 전달된 file_name 은 이미 복사본이므로 수정해도 안전하다. */
-	char *program_name = strtok_r(file_name, " ", &save_ptr);
+	// char *program_name = strtok_r(file_name, " ", &save_ptr);
+	char *program_name = strtok_r((char *) file_name, " ", &save_ptr);
 
 	/* Open executable file. */
 	file = filesys_open (program_name);
@@ -421,6 +442,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", program_name);
 		goto done;
 	}
+
+	/* 실행 중인 파일에 다른 프로세스가 쓰지 못하도록 막는다. */
+	file_deny_write(file);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -546,6 +570,15 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
+	if (!success) {
+		/* load 가 실패하면 새로 만든 페이지 테이블을 파괴하고
+		 * 이전 페이지 테이블로 복원 및 활성화한다. */
+		pml4_destroy(t->pml4);
+		t->pml4 = old_pml4;
+		if (old_pml4 != NULL) {
+			process_activate(t);
+		}
+	}
 	file_close (file);
 	return success;
 }

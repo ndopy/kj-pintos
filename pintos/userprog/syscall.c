@@ -74,7 +74,10 @@ syscall_handler (struct intr_frame *f) {
 
 		case SYS_EXEC:
 			check_string((const char *) f->R.rdi);
-			f->R.rax = process_exec((void *) f->R.rdi);
+			int result = process_exec((void *) f->R.rdi);
+			if (result == -1) {
+				exit(-1);
+			}
 			break;
 
 		case SYS_EXIT:
