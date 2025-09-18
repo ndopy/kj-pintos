@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 
+#include "input.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -71,6 +72,11 @@ syscall_handler (struct intr_frame *f) {
 			power_off();
 			break;
 
+		case SYS_EXEC:
+			check_string((const char *) f->R.rdi);
+			f->R.rax = process_exec((void *) f->R.rdi);
+			break;
+
 		case SYS_EXIT:
 			/* 현재 프로세스를 종료시킨다. */
 			exit(f->R.rdi);
@@ -132,24 +138,30 @@ exit(int status) {
 
 static int
 read(int fd, void *buffer, unsigned size) {
-	if (fd < 0 || fd >= FDT_SIZE) {
+	/* fd가 표준 출력이거나 유효하지 않은 범위일 경우 */
+	if (fd == STDOUT_FILENO || fd < 0 || fd >= FDT_SIZE) {
 		return -1;
 	}
 
-	/* STDOUT - 표준 출력 -> 에러 */
-	if (fd == STDOUT_FILENO) {
-		return -1;
+	if (fd == STDIN_FILENO) {
+		// TODO: fd 가 표준 입력인 경우 : 키보드로부터 입력 받기
+		uint8_t *buf = (uint8_t *) buffer;
+		for (unsigned i = 0; i < size; i++) {
+			buf[i] = input_getc();
+		}
+
+		return size;
 	}
 
-	lock_acquire(&filesys_lock);
 	struct thread *current = thread_current();
 	struct file *file_obj = current->fd_table[fd];
 
 	if (file_obj == NULL) {
-		lock_release(&filesys_lock);
 		return -1;
 	}
 
+	/* 파일 시스템 접근 시에만 락을 사용한다. */
+	lock_acquire(&filesys_lock);
 	int bytes_read = file_read(file_obj, buffer, size);
 	lock_release(&filesys_lock);
 
