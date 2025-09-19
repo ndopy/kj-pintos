@@ -131,6 +131,8 @@ struct thread {
 
 	/* File Descriptor Table */
 	struct file **fd_table;		/* 파일 디스크립터 테이블 */
+
+	struct file *executable;	/* 실행 파일의 정보를 저장할 포인터 */
 };
 
 /* If false (default), use round-robin scheduler.

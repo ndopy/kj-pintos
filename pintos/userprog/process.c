@@ -353,6 +353,12 @@ process_cleanup (void) {
 		curr->fd_table = NULL;
 	}
 
+	/* 실행 중인 파일의 락을 해제한다. */
+	if (curr->executable != NULL) {
+		file_close(curr->executable);
+		curr->executable = NULL;
+	}
+
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
 	 * to the kernel-only page directory. */
@@ -626,16 +632,20 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	if (!success) {
-		/* load 가 실패하면 새로 만든 페이지 테이블을 파괴하고
-		 * 이전 페이지 테이블로 복원 및 활성화한다. */
+	if (success) {
+		t->executable = file;
+	} else {
+		/* load가 실패하면 파일을 닫는다. */
+		file_close(file);
+
+		/* 새로 만든 페이지 테이블을 파괴하고, 이전 페이지 테이블로 복원 및 활성화한다. */
 		pml4_destroy(t->pml4);
 		t->pml4 = old_pml4;
+
 		if (old_pml4 != NULL) {
 			process_activate(t);
 		}
 	}
-	file_close (file);
 	return success;
 }
 
