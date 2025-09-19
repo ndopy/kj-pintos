@@ -122,6 +122,11 @@ struct thread {
 	struct semaphore wait_sema;
 	struct list children;
 	struct list_elem child_elem;
+	struct thread *parent;			/* 부모 프로세스 */
+
+	/* fork() 동기화를 위한 멤버 */
+	struct semaphore fork_sema;		/* 자식의 리소스 복제가 끝날 때까지 부모가 기다리기 위한 세마포어 */
+	bool fork_success;				/* 자식의 리소스 복제 성공 여부 */
 
 	/* File Descriptor Table */
 	struct file **fd_table;		/* 파일 디스크립터 테이블 */

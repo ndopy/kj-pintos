@@ -72,6 +72,11 @@ syscall_handler (struct intr_frame *f) {
 			power_off();
 			break;
 
+		case SYS_FORK:
+			check_string((const char *) f->R.rdi);
+			f->R.rax = process_fork((const char *) f->R.rdi, f);
+			break;
+
 		case SYS_EXEC:
 			check_string((const char *) f->R.rdi);
 			int result = process_exec((void *) f->R.rdi);
