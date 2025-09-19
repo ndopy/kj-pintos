@@ -72,6 +72,11 @@ syscall_handler (struct intr_frame *f) {
 			power_off();
 			break;
 
+		case SYS_EXIT:
+			/* 현재 프로세스를 종료시킨다. */
+			exit(f->R.rdi);
+			break;
+
 		case SYS_FORK:
 			check_string((const char *) f->R.rdi);
 			f->R.rax = process_fork((const char *) f->R.rdi, f);
@@ -85,9 +90,9 @@ syscall_handler (struct intr_frame *f) {
 			}
 			break;
 
-		case SYS_EXIT:
-			/* 현재 프로세스를 종료시킨다. */
-			exit(f->R.rdi);
+		case SYS_WAIT:
+			/* 자식 프로세스가 종료될 때까지 기다린다. */
+			f->R.rax = process_wait((tid_t) f->R.rdi);
 			break;
 
 		case SYS_CREATE:
@@ -98,10 +103,6 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_OPEN:
 			check_string((const char *) f->R.rdi);
 			f->R.rax = open((const char *)f->R.rdi);
-			break;
-
-		case SYS_CLOSE:
-			close((int) f->R.rdi);
 			break;
 
 		case SYS_FILESIZE:
@@ -127,6 +128,10 @@ syscall_handler (struct intr_frame *f) {
 			}
 
 			f->R.rax = write(f->R.rdi, (void *)f->R.rsi, f->R.rdx);
+			break;
+
+		case SYS_CLOSE:
+			close((int) f->R.rdi);
 			break;
 
 		default:

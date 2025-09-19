@@ -120,6 +120,7 @@ struct thread {
 	/* User Program */
 	int exit_status;
 	struct semaphore wait_sema;
+	struct semaphore reap_sema;		/* 자식이 부모에 의해 수확될 때까지 기다리기 위한 세마포어 */
 	struct list children;
 	struct list_elem child_elem;
 	struct thread *parent;			/* 부모 프로세스 */

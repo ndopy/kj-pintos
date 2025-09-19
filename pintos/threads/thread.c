@@ -575,6 +575,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	/* User Program 초기화 */
 	t->exit_status = -1;				/* 기본 종료 상태 */
 	sema_init(&t->wait_sema, 0);
+	sema_init(&t->reap_sema, 0);
 	sema_init(&t->fork_sema, 0);
 	list_init(&t->children);
 
