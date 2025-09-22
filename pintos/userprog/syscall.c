@@ -22,6 +22,8 @@ void syscall_handler (struct intr_frame *);
 static void exit(int status) NO_RETURN;
 static int read(int fd, void *buffer, unsigned size);
 static int write(int fd, const void *buffer, unsigned size);
+static void seek(int fd, unsigned position);
+static unsigned tell(int fd);
 static bool create(const char *file_name, unsigned int file_size);
 static int open(const char *file_name);
 static void close(int fd);
@@ -128,6 +130,14 @@ syscall_handler (struct intr_frame *f) {
 			}
 
 			f->R.rax = write(f->R.rdi, (void *)f->R.rsi, f->R.rdx);
+			break;
+
+		case SYS_SEEK:
+			seek(f->R.rdi, f->R.rsi);
+			break;
+
+		case SYS_TELL:
+			f->R.rax = tell(f->R.rdi);
 			break;
 
 		case SYS_CLOSE:
@@ -237,6 +247,38 @@ write(int fd, const void *buffer, unsigned size) {
 	lock_release(&filesys_lock);
 
 	return bytes_written;
+}
+
+static void
+seek(int fd, unsigned position) {
+	if (fd < 2 || fd >= FDT_SIZE) {
+		return;
+	}
+
+	struct thread *current = thread_current();
+	struct file *file_obj = current->fd_table[fd];
+
+	if (file_obj == NULL) {
+		return;
+	}
+
+	file_seek(file_obj, position);
+}
+
+static unsigned
+tell(int fd) {
+	if (fd < 2 || fd >= FDT_SIZE) {
+		return 0;
+	}
+
+	struct thread *current = thread_current();
+	struct file *file_obj = current->fd_table[fd];
+
+	if (file_obj == NULL) {
+		return 0;
+	}
+
+	return file_tell(file_obj);
 }
 
 static bool
