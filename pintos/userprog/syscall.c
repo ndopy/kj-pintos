@@ -25,6 +25,7 @@ static int write(int fd, const void *buffer, unsigned size);
 static void seek(int fd, unsigned position);
 static unsigned tell(int fd);
 static bool create(const char *file_name, unsigned int file_size);
+static bool remove(const char *file_name);
 static int open(const char *file_name);
 static void close(int fd);
 static int filesize(int fd);
@@ -100,6 +101,11 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_CREATE:
 			check_string((const char *) f->R.rdi);
 			f->R.rax = create((const char *)f->R.rdi, f->R.rsi);
+			break;
+
+		case SYS_REMOVE:
+			check_string((const char *) f->R.rdi);
+			f->R.rax = remove((const char *) f->R.rdi);
 			break;
 
 		case SYS_OPEN:
@@ -293,6 +299,20 @@ create(const char *file_name, unsigned int file_size) {
 	lock_release(&filesys_lock);
 
 	return result;
+}
+
+static bool
+remove(const char *file_name) {
+	/* 파일 이름이 비어있는 경우 -> 실패 처리 */
+	if (*file_name == '\0') {
+		return false;
+	}
+
+	lock_acquire(&filesys_lock);
+	bool success = filesys_remove(file_name);
+	lock_release(&filesys_lock);
+
+	return success;
 }
 
 static int

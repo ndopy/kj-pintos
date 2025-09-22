@@ -8,7 +8,7 @@ priority-donate-multiple PASS
 args-multiple PASS
 lg-seq-random PASS
 syn-write PASS
-syn-remove FAIL
+syn-remove PASS
 priority-donate-one PASS
 create-normal PASS
 priority-donate-lower PASS
