@@ -1,6 +1,8 @@
 #ifndef VM_VM_H
 #define VM_VM_H
 #include <stdbool.h>
+
+#include "hash.h"
 #include "threads/palloc.h"
 
 enum vm_type {
@@ -46,6 +48,8 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
+	struct hash_elem hash_elem;		/* SPT를 위한 해시 테이블 요소 */
+	bool writable;					/* 이 페이지에 쓰기가 가능한지 여부 */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -85,6 +89,8 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	/* 해시 테이블을 감싸는 역할 */
+	struct hash pages;
 };
 
 #include "threads/thread.h"
