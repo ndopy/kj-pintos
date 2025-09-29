@@ -36,6 +36,24 @@ page_get_type (struct page *page) {
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
+static uint64_t page_hash (const struct hash_elem *e, void *aux UNUSED);
+static bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+
+/* 가상 주소를 키로 사용해서 해시 값을 계산한다. */
+static uint64_t
+page_hash (const struct hash_elem *e, void *aux UNUSED) {
+	const struct page *p = hash_entry(e, struct page, hash_elem);
+	return hash_bytes(&p->va, sizeof p->va);
+}
+
+/* 해시 테이블에서 사용할 비교 함수 */
+static bool
+page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED) {
+	const struct page *a = hash_entry(a_, struct page, hash_elem);
+	const struct page *b = hash_entry(b_, struct page, hash_elem);
+	return a->va < b->va;
+}
+
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -174,6 +192,7 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init(&spt->pages, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
