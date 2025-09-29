@@ -2,6 +2,8 @@
 
 #include "threads/malloc.h"
 #include "vm/vm.h"
+
+#include "vaddr.h"
 #include "vm/inspect.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -79,12 +81,26 @@ err:
 }
 
 /* Find VA from spt and return page. On error, return NULL. */
+
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
+	struct page p; /* 검색을 위한 임시 페이지 구조체 생성 */
+	struct hash_elem *e; /* 해시 테이블 요소를 가리키는 포인터 선언 */
 
-	return page;
+	/* pg_round_down : 특정 가상 주소(va)가 속한 가상 페이지의 시작 주소를 계산해준다. */
+	p.va = pg_round_down(va);	/* 정렬된 주소를 페이지의 가상 주소로 설정 */
+
+	/* 해시 테이블에서 해당 페이지 검색 */
+	e = hash_find(&spt->pages, &p.hash_elem);
+
+	/* 페이지를 찾은 경우 */
+	if (e != NULL) {
+		/* 해시 요소를 페이지 구조체로 변환하여 반환 */
+		return hash_entry(e, struct page, hash_elem);
+	}
+
+	/* 페이지를 찾지 못한 경우 NULL 반환 */
+	return NULL;
 }
 
 /* Insert PAGE into spt with validation. */
