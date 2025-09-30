@@ -83,7 +83,7 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page p; /* 검색을 위한 임시 페이지 구조체 생성 */
 	struct hash_elem *e; /* 해시 테이블 요소를 가리키는 포인터 선언 */
 
@@ -105,8 +105,7 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
+spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	return hash_insert(&spt->pages, &page->hash_elem) == NULL;
 }
 
