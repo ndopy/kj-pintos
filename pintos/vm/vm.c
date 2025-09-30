@@ -6,6 +6,10 @@
 #include "vaddr.h"
 #include "vm/inspect.h"
 
+/* 전역 프레임 테이블과 락 */
+static struct list frame_table;
+static struct lock frame_table_lock;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -18,6 +22,9 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	/* 프레임 테이블과 락 초기화 */
+	list_init(&frame_table);
+	lock_init(&frame_table_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -138,6 +145,10 @@ vm_evict_frame (void) {
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
+/* palloc()을 호출하여 프레임을 가져옵니다. 사용 가능한 페이지가 없다면,
+ * 페이지를 방출하고 그것을 반환합니다. 이 함수는 항상 유효한 주소를 반환합니다.
+ * 즉, 사용자 풀 메모리가 가득 찼다면, 이 함수는 사용 가능한 메모리 공간을
+ * 확보하기 위해 프레임을 방출합니다.*/
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
