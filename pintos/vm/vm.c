@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 
+#include "mmu.h"
 #include "vaddr.h"
 #include "vm/inspect.h"
 
@@ -145,18 +146,58 @@ vm_evict_frame (void) {
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
-/* palloc()을 호출하여 프레임을 가져옵니다. 사용 가능한 페이지가 없다면,
- * 페이지를 방출하고 그것을 반환합니다. 이 함수는 항상 유효한 주소를 반환합니다.
- * 즉, 사용자 풀 메모리가 가득 찼다면, 이 함수는 사용 가능한 메모리 공간을
- * 확보하기 위해 프레임을 방출합니다.*/
+
+/* vm_get_frame: 새로운 물리 프레임을 할당하고 초기화하는 함수
+ *
+ * 반환값:
+ * - struct frame*: 새로 할당된 프레임의 포인터
+ * - NULL: 메모리 할당 실패 시
+ *
+ * 동작:
+ * 1. palloc_get_page를 사용하여 사용자 풀에서 새 페이지를 할당
+ * 2. 할당 실패 시 페이지 교체(eviction) 수행
+ * 3. 프레임 구조체를 생성하고 초기화
+ * 4. 할당된 프레임 반환
+ *
+ * 주의사항:
+ * - 반환된 프레임은 아직 특정 페이지와 연결되지 않은 상태임(frame->page = NULL)
+ * - 메모리 부족 시 페이지 교체 정책에 따라 기존 페이지를 방출함
+ */
+
 static struct frame *
 vm_get_frame (void) {
+	/* 새로운 프레임 구조체를 가리킬 포인터를 NULL로 초기화 */
 	struct frame *frame = NULL;
-	/* TODO: Fill this function. */
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
-	return frame;
+	/* 사용자 메모리 풀에서 새 페이지를 할당받고 0으로 초기화 */
+	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
+
+	/* 페이지 할당에 실패한 경우 */
+	if (kva == NULL) {
+		/* PANIC("TODO: Implement eviction"); */
+		/* 지금은 스와핑이 구현되지 않았으므로 패닉을 발생시키거나
+		 * vm_evict_frame을 호출하도록 미리 만들어 둘 수 있다.
+		 */
+		/* 페이지 교체 정책을 통해 새로운 프레임을 확보 */
+		return vm_evict_frame();
+	}
+
+	/* 프레임 구조체를 위한 메모리 동적 할당 */
+	frame = malloc(sizeof(struct frame));
+
+	/* 프레임 구조체 할당 실패 시 이전에 할당받은 페이지를 반환하고 NULL 반환 */
+	if (frame == NULL) {
+		palloc_free_page(kva);
+		return NULL;
+	}
+
+	frame->kva = kva;		/* 할당받은 커널 가상 주소를 프레임에 저장 */
+	frame->page = NULL;		/* 프레임에 연결된 페이지가 없음을 표시 */
+							/* 아직 어떤 페이지와도 연결되지 않음. */
+
+	ASSERT(frame != NULL);			/* 프레임이 제대로 할당되었는지 확인 */
+	ASSERT(frame->page == NULL);	/* 프레임에 연결된 페이지가 없는지 확인 */
+	return frame;					/* 할당된 프레임 반환 */
 }
 
 /* Growing the stack. */
@@ -199,16 +240,53 @@ vm_claim_page (void *va UNUSED) {
 }
 
 /* Claim the PAGE and set up the mmu. */
+/* vm_do_claim_page: 페이지에 물리 프레임을 할당하고 매핑하는 함수
+ *
+ * 인자:
+ * - struct page *page: 물리 메모리를 할당받을 페이지 구조체
+ * 
+ * 반환값:
+ * - bool: 성공 시 true, 실패 시 false
+ *
+ * 동작:
+ * 1. 새로운 프레임을 할당받음
+ * 2. 페이지와 프레임을 서로 연결
+ * 3. 페이지의 가상 주소와 프레임의 물리 주소를 매핑
+ * 4. 실패 시 할당받은 자원을 모두 해제
+ */
 static bool
 vm_do_claim_page (struct page *page) {
+	if (page == NULL) {
+		return false;
+	}
+
+	/* 빈 프레임을 얻는다. */
 	struct frame *frame = vm_get_frame ();
 
-	/* Set links */
+	/* 프레임 할당에 실패한 경우 */
+	if (frame == NULL) {
+		return false;
+	}
+
+	/* 페이지와 프레임을 서로 연결한다. */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	/* 페이지의 가상 주소(VA)를 프레임의 물리 주소(PA)에 매핑 */
+	if (!pml4_set_page (thread_current ()->pml4, page->va, frame->kva, page->writable)) {
+		/* 자원은 할당받았지만 가상-물리 주소 매핑에 실패한 경우 */
+		/* 할당받았던 자원들을 모두 해제한다. */
+		palloc_free_page(frame->kva);
+		free(frame);
 
+		/* 페이지와 프레임의 연결을 끊어 댕글링 포인터를 방지한다. */
+		page->frame = NULL;
+		
+		return false;
+	}
+
+	/* 페이지의 종류를 파악하고, 알맞은 위치에서 데이터를 읽어와 물리 프레임에 복사한다. */
 	return swap_in (page, frame->kva);
 }
 
