@@ -831,7 +831,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* 남는 공간을 0으로 채우기 */
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
-	free(info)
+	free(info);
 	return true;
 }
 
@@ -904,7 +904,6 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
@@ -912,6 +911,16 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
-	return success;
+	/* VM_ANON 타입으로, 쓰기 가능한 스택 페이지를 할당하기 */
+	if (vm_alloc_page(VM_ANON, stack_bottom, true)) {
+		/* 할당된 페이지를 즉시 물리 메모리에 올리기 */
+		if (vm_claim_page(stack_bottom)) {
+			/* 성공 시 스택 포인터 설정 */
+			if_->rsp = USER_STACK;
+			return true;
+		}
+	}
+
+	return false;
 }
 #endif /* VM */
