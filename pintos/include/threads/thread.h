@@ -112,6 +112,7 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
+	uintptr_t rsp_stack;				/* 유저 스택 포인터 저장용 멤버 */
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */

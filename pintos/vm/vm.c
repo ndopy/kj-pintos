@@ -277,8 +277,6 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
 
 	/* 폴트가 발생한 주소가 유효한지 확인한다. */
 	if (addr == NULL || !is_user_vaddr(addr)) {
@@ -290,7 +288,25 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 
 	/* 페이지를 찾지 못했다면, 잘못된 접근이므로 false 반환 */
 	if (page == NULL) {
-		return false;
+		/* 스택 확장 가능성을 확인해야 한다. */
+		/* 현재 커널 모드에서 폴트가 발생했는지 확인한다.
+		 * - 유저 모드 폴트라면 : f->rsp
+		 * - 커널 모드 폴트라면 : 스레드에 저장된 유저 스택 포인터를 기준으로 한다.
+		 *                    (시스템 콜 처리 중 발생하는 페이지 폴트 대비)
+		 */
+		uintptr_t stack_pointer = is_kernel_vaddr(f->rsp) ? thread_current()->rsp_stack : f->rsp;
+
+		/* 스택 확장 조건 검사 */
+		/* 1. 폴트 주소가 유효한 스택 주소 범위 내에 있는지 확인한다. (e.g., USER_STACK - 1MB) */
+		/* 2. 폴트 주소가 현재 스택 포인터(f->rsp)보다 아래에 있는지 확인한다. */
+		/*    (PUSH/PUSHA 명령어는 rsp를 먼저 감소시키지 않고 메모리에 접근할 수 있다.) */
+		if (addr >= (void *) stack_pointer - 8 && addr >= USER_STACK - (1 << 20) && addr < USER_STACK) {
+			/* 스택 확장 함수 호출 */
+			vm_stack_growth(addr);
+
+			/* 페이지를 다시 찾아본다. */
+			page = spt_find_page(spt, addr);
+		}
 	}
 
 	/* 쓰기 금지된 페이지에 쓰려고 할 때의 예외 처리 */
