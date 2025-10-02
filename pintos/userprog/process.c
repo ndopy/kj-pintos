@@ -22,6 +22,17 @@
 #include "vm/vm.h"
 #endif
 
+/** lazy_load_segment 함수에 필요한 정보를 담는 구조체
+ * - 페이지 폴트 시 어떤 파일의 어느 위치에서 얼마만큼 읽어야 하는지에 대한 정보를 담는다.
+ */
+struct lazy_load_info {
+	struct file *file;		/* 읽어올 데이터가 있는 파일 */
+	off_t ofs;				/* 파일 내에서 데이터를 읽기 시작할 오프셋 */
+	uint32_t read_bytes;	/* 파일에서 실제로 읽어야 할 바이트 수 */
+	uint32_t zero_bytes;	/* 읽은 데이터 뒤에 0으로 채워야 할 바이트 수 */
+	bool writable;			/* 페이지의 쓰기 가능 여부 */
+};
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -819,27 +830,40 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+
+/** 실행 파일의 세그먼트를 메모리에 로드하는 함수
+ * 
+ * @param file        로드할 세그먼트가 있는 파일
+ * @param ofs         파일 내에서 세그먼트의 시작 위치
+ * @param upage       세그먼트를 매핑할 가상 주소
+ * @param read_bytes  파일에서 실제로 읽어야 할 바이트 수
+ * @param zero_bytes  0으로 채워야 할 바이트 수
+ * @param writable    쓰기 가능 여부
+ * @return           성공하면 true, 실패하면 false
+ */
 static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
-		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
-	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
-	ASSERT (pg_ofs (upage) == 0);
-	ASSERT (ofs % PGSIZE == 0);
+load_segment(struct file *file, off_t ofs, uint8_t *upage,
+             uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
+	/* 페이지 정렬 검사 */
+	ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
+	ASSERT(pg_ofs(upage) == 0);
+	ASSERT(ofs % PGSIZE == 0);
 
 	while (read_bytes > 0 || zero_bytes > 0) {
-		/* Do calculate how to fill this page.
-		 * We will read PAGE_READ_BYTES bytes from FILE
-		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		/* 현재 페이지에 대해 파일에서 읽을 크기와 0으로 채울 크기 계산 
+		 * PGSIZE보다 작은 경우 남은 크기만큼만 읽고 나머지는 0으로 채움 */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
+		/* lazy_load_segment에 전달할 보조 정보 설정 
+		 * 파일 읽기에 필요한 정보를 담은 구조체를 생성해야 함 */
 		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
+		                                    writable, lazy_load_segment, aux)) {
 			return false;
+		}
 
-		/* Advance. */
+		/* 다음 페이지 처리를 위해 카운터 갱신 */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
