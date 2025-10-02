@@ -916,18 +916,9 @@ setup_stack (struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* VM_ANON 타입으로, 쓰기 가능한 스택 페이지를 할당한다. */
-	if (vm_alloc_page(VM_ANON, stack_bottom, true)) {
+	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) {
 		/* 할당된 페이지를 즉시 물리 메모리에 올린다(claim). */
 		if (vm_claim_page(stack_bottom)) {
-			/* stack_bottom에 해당하는 page를 가져온다. */
-			struct page *stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
-
-			if (stack_page != NULL) {
-				/* 페이지를 '스택'으로 표시한다. */
-				/* 비트 OR 연산으로 VM_ANON 타입 정보와 VM_MARKER_0 정보를 모두 보존한다. */
-				stack_page->operations->type |= VM_MARKER_0;
-			}
-
 			/* 성공 시 스택 포인터를 설정한다. */
 			if_->rsp = USER_STACK;
 			return true;
