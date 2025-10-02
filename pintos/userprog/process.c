@@ -18,6 +18,7 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "vm.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -901,21 +902,34 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 	return true;
 }
 
-/* Create a PAGE of stack at the USER_STACK. Return true on success. */
+/** 사용자 프로세스의 스택을 설정하는 함수
+ * 
+ * @param if_ 인터럽트 프레임 구조체의 포인터
+ * @return 스택 설정 성공 시 true, 실패 시 false
+ * 
+ * @details
+ * USER_STACK 위치에 스택용 페이지를 생성하고 초기화한다.
+ * VM_ANON 타입의 페이지를 할당하고 즉시 물리 메모리에 매핑한다.
+ * 성공 시 인터럽트 프레임의 스택 포인터(rsp)를 USER_STACK으로 설정한다.
+ */
 static bool
 setup_stack (struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
-	/* VM_ANON 타입으로, 쓰기 가능한 스택 페이지를 할당하기 */
+	/* VM_ANON 타입으로, 쓰기 가능한 스택 페이지를 할당한다. */
 	if (vm_alloc_page(VM_ANON, stack_bottom, true)) {
-		/* 할당된 페이지를 즉시 물리 메모리에 올리기 */
+		/* 할당된 페이지를 즉시 물리 메모리에 올린다(claim). */
 		if (vm_claim_page(stack_bottom)) {
-			/* 성공 시 스택 포인터 설정 */
+			/* stack_bottom에 해당하는 page를 가져온다. */
+			struct page *stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
+
+			if (stack_page != NULL) {
+				/* 페이지를 '스택'으로 표시한다. */
+				/* 비트 OR 연산으로 VM_ANON 타입 정보와 VM_MARKER_0 정보를 모두 보존한다. */
+				stack_page->operations->type |= VM_MARKER_0;
+			}
+
+			/* 성공 시 스택 포인터를 설정한다. */
 			if_->rsp = USER_STACK;
 			return true;
 		}
