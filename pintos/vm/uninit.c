@@ -23,21 +23,31 @@ static const struct page_operations uninit_ops = {
 };
 
 /* DO NOT MODIFY this function */
+/**
+ * @brief 초기화되지 않은 새로운 페이지를 생성하는 함수
+ * 
+ * @param page			초기화할 페이지 구조체 포인터
+ * @param va			가상 주소
+ * @param init			페이지 초기화를 위한 콜백 함수
+ * @param type			페이지의 타입 (anon, file, page_cache)
+ * @param aux			초기화에 필요한 보조 데이터
+ * @param initializer	페이지 초기화를 수행할 함수 포인터
+ */
 void
-uninit_new (struct page *page, void *va, vm_initializer *init,
-		enum vm_type type, void *aux,
-		bool (*initializer)(struct page *, enum vm_type, void *)) {
-	ASSERT (page != NULL);
+uninit_new(struct page *page, void *va, vm_initializer *init,
+           enum vm_type type, void *aux,
+           bool (*initializer)(struct page *, enum vm_type, void *)) {
+	ASSERT(page != NULL);						/* 페이지 포인터가 NULL이 아닌지 확인 */
 
-	*page = (struct page) {
-		.operations = &uninit_ops,
-		.va = va,
-		.frame = NULL, /* no frame for now */
-		.uninit = (struct uninit_page) {
-			.init = init,
-			.type = type,
-			.aux = aux,
-			.page_initializer = initializer,
+	*page = (struct page){
+		.operations = &uninit_ops,				/* 초기화되지 않은 페이지의 기본 operations 설정 */
+		.va = va,								/* 가상 주소 설정 */
+		.frame = NULL,							/* 아직 프레임이 할당되지 않음 */
+		.uninit = (struct uninit_page){
+			.init = init,						/* 초기화 콜백 함수 설정 */
+			.type = type,						/* 페이지 타입 설정 */
+			.aux = aux,							/* 보조 데이터 설정 */
+			.page_initializer = initializer,	/* 페이지 초기화 함수 설정 */
 		}
 	};
 }
