@@ -254,12 +254,30 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+vm_try_handle_fault (struct intr_frame *f, void *addr,
+		bool user, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+
+	/* 폴트가 발생한 주소가 유효한지 확인한다. */
+	if (addr == NULL || !is_user_vaddr(addr)) {
+		return false;
+	}
+
+	/* SPT 에서 폴트가 발생한 주소에 해당하는 페이지를 찾는다. */
+	page = spt_find_page(spt, addr);
+
+	/* 페이지를 찾지 못했다면, 잘못된 접근이므로 false 반환 */
+	if (page == NULL) {
+		return false;
+	}
+
+	/* 쓰기 금지된 페이지에 쓰려고 할 때의 예외 처리 */
+	if (write && !page->writable) {
+		return false;
+	}
 
 	return vm_do_claim_page (page);
 }
