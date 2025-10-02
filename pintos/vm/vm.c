@@ -195,6 +195,10 @@ vm_get_frame (void) {
 	frame->page = NULL;		/* 프레임에 연결된 페이지가 없음을 표시 */
 							/* 아직 어떤 페이지와도 연결되지 않음. */
 
+	lock_acquire(&frame_table_lock);
+	list_push_back(&frame_table, &frame->elem);
+	lock_release(&frame_table_lock);
+
 	ASSERT(frame != NULL);			/* 프레임이 제대로 할당되었는지 확인 */
 	ASSERT(frame->page == NULL);	/* 프레임에 연결된 페이지가 없는지 확인 */
 	return frame;					/* 할당된 프레임 반환 */
