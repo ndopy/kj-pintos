@@ -3,8 +3,8 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 
-#include "mmu.h"
-#include "vaddr.h"
+#include "threads/mmu.h"
+#include "threads/vaddr.h"
 #include "vm/inspect.h"
 
 /* 전역 프레임 테이블과 락 */
