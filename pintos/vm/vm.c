@@ -249,7 +249,21 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	/* 폴트가 발생한 주소인 addr을 페이지 경계로 내림하여, 새 스택 페이지의 시작 주소를 계산한다. */
+	void *stack_bottom = pg_round_down(addr);
+
+	/* VM_ANON | VM_MARKER_0 타입(익명 페이지면서 스택 페이지)으로
+	 * 새 스택 페이지를 할당하고, 즉시 claim 한다. */
+	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) {
+		if (!vm_claim_page(stack_bottom)) {
+			/* claim 실패 시, SPT에 등록했던 (malloc으로 할당된) 페이지를 다시 해제한다. */
+			struct page *page = spt_find_page(&thread_current()->spt, stack_bottom);
+			if (page) {
+				vm_dealloc_page(page);
+			}
+		}
+	}
 }
 
 /* Handle the fault on write_protected page */
