@@ -932,9 +932,14 @@ setup_stack (struct intr_frame *if_) {
 			/* 성공 시 스택 포인터를 설정한다. */
 			if_->rsp = USER_STACK;
 			return true;
+		} else {
+			/* claim 실패 시, 이전에 SPT에 등록했던 (malloc으로 할당한) page를 해제하여 리소스 누수를 방지한다. */
+			struct page *page = spt_find_page(&thread_current()->spt, stack_bottom);
+			if (page) {
+				vm_dealloc_page(page);
+			}
 		}
 	}
-
 	return false;
 }
 #endif /* VM */
