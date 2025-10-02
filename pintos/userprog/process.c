@@ -811,9 +811,28 @@ install_page (void *upage, void *kpage, bool writable) {
 
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+	struct lazy_load_info *info = (struct lazy_load_info *) aux;
+
+	struct file *file = info->file;
+	off_t ofs = info->ofs;
+	size_t page_read_bytes = info->read_bytes;
+	size_t page_zero_bytes = info->zero_bytes;
+
+	/* 어느 파일(file)의 어디서부터(ofs) 읽어야 할지를 정한다. */
+	file_seek(file, ofs);
+
+	/* file 에서 read_bytes만큼 데이터를 읽어서 물리 메모리(kva)에 넣는다. (=로딩) */
+	if (file_read(file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+		/* 파일 읽기 실패 시, 보조 정보 메모리 해제 후 false 반환 */
+		free(info);
+		return false;
+	}
+
+	/* 남는 공간을 0으로 채우기 */
+	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+
+	free(info)
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -857,9 +876,19 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 
 		/* lazy_load_segment에 전달할 보조 정보 설정 
 		 * 파일 읽기에 필요한 정보를 담은 구조체를 생성해야 함 */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer(VM_ANON, upage,
-		                                    writable, lazy_load_segment, aux)) {
+		struct lazy_load_info *info = malloc(sizeof(struct lazy_load_info));
+		if (info == NULL) {
+			return false;
+		}
+
+		info->file = file;
+		info->ofs = ofs;
+		info->read_bytes = page_read_bytes;
+		info->zero_bytes = page_zero_bytes;
+
+		if (!vm_alloc_page_with_initializer(VM_FILE, upage,
+		                                    writable, lazy_load_segment, info)) {
+			free(info);
 			return false;
 		}
 
@@ -867,6 +896,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }

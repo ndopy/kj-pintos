@@ -64,27 +64,65 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNU
 	return a->va < b->va;
 }
 
-
-/* Create the pending page object with initializer. If you want to create a
- * page, do not create it directly and make it through this function or
- * `vm_alloc_page`. */
+/**
+ * @brief 초기화 함수와 함께 가상 메모리 페이지를 생성하고 할당하는 함수
+ * 
+ * @details 페이지를 직접 생성하지 말고 이 함수나 vm_alloc_page를 통해서 생성해야 함
+ * 
+ * @param type 생성할 페이지의 타입 (VM_ANON 또는 VM_FILE)
+ * @param upage 페이지가 매핑될 사용자 가상 주소
+ * @param writable 페이지 쓰기 가능 여부 (true: 쓰기 가능)
+ * @param init 페이지 초기화를 위한 함수 포인터
+ * @param aux 초기화 함수에 전달될 보조 데이터 포인터
+ * 
+ * @return 성공 시 true, 실패 시 false 반환
+ */
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init, void *aux) {
+                                vm_initializer *init, void *aux) {
+	/* 초기화되지 않은 페이지 타입이 아닌지 확인 */
+	ASSERT(VM_TYPE(type) != VM_UNINIT)
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	/* 현재 스레드의 보조 페이지 테이블을 가져온다 */
+	struct supplemental_page_table *spt = &thread_current()->spt;
 
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	/* 해당 가상 주소에 이미 페이지가 있는지 확인 */
+	if (spt_find_page(spt, upage) == NULL) {
+		/* 새로운 페이지 구조체를 위한 메모리 할당 */
+		struct page *page = (struct page *) malloc(sizeof(struct page));
+		/* 메모리 할당 실패 시 에러 처리 */
+		if (page == NULL) {
+			goto err;
+		}
 
-	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+		/* 페이지 타입에 따른 초기화 함수 호출 */
+		switch (type) {
+			case VM_ANON:
+				/* 익명 페이지 초기화 */
+				uninit_new(page, upage, init, type, aux, anon_initializer);
+				break;
+			case VM_FILE:
+				/* 파일 기반 페이지 초기화 */
+				uninit_new(page, upage, init, type, aux, file_backed_initializer);
+				break;
+			default:
+				break;
+		}
 
-		/* TODO: Insert the page into the spt. */
+		/* 페이지의 쓰기 권한 설정 */
+		page->writable = writable;
+
+		/* 보조 페이지 테이블에 새 페이지 삽입 */
+		if (!spt_insert_page(spt, page)) {
+			/* 삽입 실패 시 할당된 페이지 해제 후 에러 처리 */
+			free(page);
+			goto err;
+		}
+		/* 페이지 할당 성공 */
+		return true;
 	}
 err:
+	/* 페이지 할당 실패 */
 	return false;
 }
 
