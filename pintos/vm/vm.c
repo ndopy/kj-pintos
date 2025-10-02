@@ -157,8 +157,8 @@ spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&spt->pages, &page->hash_elem);
 	vm_dealloc_page (page);
-	return true;
 }
 
 /* Get the struct frame, that will be evicted. */
@@ -207,6 +207,9 @@ vm_get_frame (void) {
 	/* 새로운 프레임 구조체를 가리킬 포인터를 NULL로 초기화 */
 	struct frame *frame = NULL;
 
+	/* 프레임 테이블 조작 전에 락을 획득한다. */
+	lock_acquire(&frame_table_lock);
+
 	/* 사용자 메모리 풀에서 새 페이지를 할당받고 0으로 초기화 */
 	void *kva = palloc_get_page(PAL_USER | PAL_ZERO);
 
@@ -217,7 +220,9 @@ vm_get_frame (void) {
 		 * vm_evict_frame을 호출하도록 미리 만들어 둘 수 있다.
 		 */
 		/* 페이지 교체 정책을 통해 새로운 프레임을 확보 */
-		return vm_evict_frame();
+		frame = vm_evict_frame();
+		lock_release(&frame_table_lock);
+		return frame;
 	}
 
 	/* 프레임 구조체를 위한 메모리 동적 할당 */
@@ -226,6 +231,7 @@ vm_get_frame (void) {
 	/* 프레임 구조체 할당 실패 시 이전에 할당받은 페이지를 반환하고 NULL 반환 */
 	if (frame == NULL) {
 		palloc_free_page(kva);
+		lock_release(&frame_table_lock);
 		return NULL;
 	}
 
@@ -233,7 +239,6 @@ vm_get_frame (void) {
 	frame->page = NULL;		/* 프레임에 연결된 페이지가 없음을 표시 */
 							/* 아직 어떤 페이지와도 연결되지 않음. */
 
-	lock_acquire(&frame_table_lock);
 	list_push_back(&frame_table, &frame->elem);
 	lock_release(&frame_table_lock);
 
@@ -337,11 +342,12 @@ vm_do_claim_page (struct page *page) {
 	if (!pml4_set_page (thread_current ()->pml4, page->va, frame->kva, page->writable)) {
 		/* 자원은 할당받았지만 가상-물리 주소 매핑에 실패한 경우 */
 		/* 할당받았던 자원들을 모두 해제한다. */
-		palloc_free_page(frame->kva);
-		free(frame);
 
 		/* 페이지와 프레임의 연결을 끊어 댕글링 포인터를 방지한다. */
 		page->frame = NULL;
+
+		palloc_free_page(frame->kva);
+		free(frame);
 		
 		return false;
 	}
