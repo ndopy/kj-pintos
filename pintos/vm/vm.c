@@ -297,10 +297,15 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function */
+vm_claim_page (void *va) {
+	/* va 에 해당하는 페이지를 SPT에서 찾는다. */
+	struct page *page = spt_find_page(&thread_current()->spt, va);
 
+	if (page == NULL) {
+		return false;
+	}
+
+	/* 해당 페이지에 물리 메모리를 할당하고 매핑하는 함수를 호출한다. */
 	return vm_do_claim_page (page);
 }
 
