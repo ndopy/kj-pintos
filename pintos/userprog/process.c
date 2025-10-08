@@ -915,7 +915,7 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-	/* VM_ANON 타입으로, 쓰기 가능한 스택 페이지를 할당한다. */
+	/* VM_ANON 타입이면서 스택인(VM_MARKER_0), 쓰기 가능한 스택 페이지를 할당한다. */
 	if (vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) {
 		/* 할당된 페이지를 즉시 물리 메모리에 올린다(claim). */
 		if (vm_claim_page(stack_bottom)) {
